@@ -1,0 +1,28 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A product for sale in the marketplace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "stock": { "type": "number" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "barcode": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "price", "stock", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": { "$ref": "Product" },
+      "description": "Products managed by the owner"
+    }
+  }
+}
