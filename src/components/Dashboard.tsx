@@ -16,6 +16,7 @@ import {
   User, 
   Sparkles, 
   CheckCircle, 
+  ScanBarcode, 
   MessageSquare, 
   MessageCircle, 
   Bot, 
@@ -32,7 +33,27 @@ import {
   HelpCircle, 
   TrendingUp,
   Award,
-  Crown
+  Crown,
+  Calendar,
+  Cloud,
+  RefreshCw,
+  Volume2,
+  VolumeX,
+  FileSpreadsheet,
+  Download,
+  Search,
+  Activity,
+  CheckSquare,
+  Globe,
+  Camera,
+  Tv,
+  Sun,
+  CloudRain,
+  Sparkle,
+  Truck,
+  ShieldCheck,
+  Ticket,
+  Flame
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { 
@@ -41,6 +62,12 @@ import {
 } from 'recharts';
 import { auth, db } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
+import Inventory from './Inventory';
+import CustomersManager from './CustomersManager';
+import ExpensesManager from './ExpensesManager';
+import SuppliersManager from './SuppliersManager';
+import PromoManager from './PromoManager';
+import SecurityCenter from './SecurityCenter';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import { translations } from '../lib/translations';
 import ThemeLanguageSwitcher from './ThemeLanguageSwitcher';
@@ -48,12 +75,24 @@ import {
   playScanSound, 
   playSuccessSound, 
   playCashRegisterSound, 
-  playSalaryRewardSound 
+  playSalaryRewardSound,
+  playClickSound,
+  playNotificationSound,
+  startFuturisticAmbience,
+  stopFuturisticAmbience
 } from '../lib/sounds';
 
 export default function DashboardPage({ currentView: initialView, onNavigate }: { currentView: string; onNavigate: (view: any) => void }) {
   const { language, theme } = useThemeLanguage();
   const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
+
+  const getGreeting = () => {
+    const hours = new Date().getHours();
+    if (hours < 12) return 'Selamat Pagi';
+    if (hours < 17) return 'Selamat Siang';
+    if (hours < 21) return 'Selamat Sore';
+    return 'Selamat Malam';
+  };
 
   const liveChartData = [
     { name: '08:00', sales: 1200 },
@@ -71,7 +110,9 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   // Determine user login state (standard or offline fallback)
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [userRole, setUserRole] = useState<'Owner' | 'Employee'>('Owner');
+  const [userRole, setUserRole] = useState<'Owner' | 'Admin' | 'Manager' | 'Supervisor' | 'Kasir' | 'Karyawan'>(() => {
+    return (localStorage.getItem('inmarket_user_role') as any) || 'Owner';
+  });
 
   // Business Open/Close State
   const [isStoreOpen, setIsStoreOpen] = useState(() => {
@@ -161,6 +202,295 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     ];
   });
 
+  // ==========================================
+  // PREMIUM 2026 STARTUP FEATURE STATES
+  // ==========================================
+  const [systemSplashActive, setSystemSplashActive] = useState(true);
+  const [splashProgress, setSplashProgress] = useState(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [isMusicOn, setIsMusicOn] = useState(false);
+  const [scannerActive, setScannerActive] = useState(false);
+  
+  const [exportModal, setExportModal] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [lastBackupTime, setLastBackupTime] = useState("Just now");
+  
+  // Customization Themes
+  const [accentColor, setAccentColor] = useState<'violet' | 'cyan' | 'emerald' | 'rose'>('violet');
+  const [backgroundTheme, setBackgroundTheme] = useState<'cyber-matrix' | 'cosmic-neon' | 'deep-obsidian'>('cyber-matrix');
+  const [neonIntensity, setNeonIntensity] = useState<'high' | 'medium' | 'hologram'>('high');
+  
+  // Multi Store
+  const [currentStore, setCurrentStore] = useState('s1');
+  const [stores, setStores] = useState([
+    { id: 's1', name: 'InMarket Lounge (Jakarta)', type: 'Lounge', baseRevenue: 0 },
+    { id: 's2', name: 'InMarket Bistro (Bandung)', type: 'Bistro', baseRevenue: 1540000 },
+    { id: 's3', name: 'InMarket Cyber-Pods (Surabaya)', type: 'Cyber-Pods', baseRevenue: -420000 }
+  ]);
+
+  // Business Target Metrics
+  const [targets, setTargets] = useState({
+    salesTarget: 5000000,
+    salesCurrent: 1450000,
+    profitTarget: 3000000,
+    profitCurrent: 870000,
+    transTarget: 30,
+    transCurrent: 16,
+    developmentProgress: 72
+  });
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [confettiParticles, setConfettiParticles] = useState<any[]>([]);
+
+  // Badges and Achievements
+  const [badges, setBadges] = useState([
+    { id: 'b1', name: 'Rajin Masuk', desc: 'Melakukan absensi QR 5 hari berturut-turut.', unlocked: true, tier: 'uncommon', icon: 'ClipboardCheck' },
+    { id: 'b2', name: 'Penjualan Tertinggi', desc: 'Mencapai omset harian > Rp 2.000.000.', unlocked: true, tier: 'rare', icon: 'TrendingUp' },
+    { id: 'b3', name: 'Best Employee', desc: 'Rating performa staf sempurna 5.0 dari AI.', unlocked: false, tier: 'epic', icon: 'Award' },
+    { id: 'b4', name: 'King Seller', desc: 'Melayani 100+ transaksi kasir digital.', unlocked: false, tier: 'legendary', icon: 'Crown' },
+    { id: 'b5', name: 'Loyal Worker', desc: 'Mengabdi di instansi > 6 bulan durasi.', unlocked: true, tier: 'common', icon: 'Users' },
+    { id: 'b6', name: 'Business Master', desc: 'Membuka 3 cabang toko mandiri di Indonesia.', unlocked: false, tier: 'legendary', icon: 'Sparkles' }
+  ]);
+  const [activeBadgePopup, setActiveBadgePopup] = useState<any | null>(null);
+
+  // Business Calendar Reminders
+  const [calendarEvents, setCalendarEvents] = useState([
+    { id: 'cl1', date: '21', title: 'Restock Espresso Arabica', type: 'warning' },
+    { id: 'cl2', date: '23', title: 'Pemeriksaan Shift Barista', type: 'info' },
+    { id: 'cl3', date: '25', title: 'Hari Pembayaran Gaji Karyawan', type: 'payout' },
+    { id: 'cl4', date: '28', title: 'Evaluasi Omset & AI Forecasting', type: 'event' }
+  ]);
+  const [selectedDate, setSelectedDate] = useState('21');
+
+  // Voice AI Assistant
+  const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [waveformHeight, setWaveformHeight] = useState<number[]>(Array(16).fill(5));
+
+  // CCTV Simulator details
+  const [cctvTime, setCctvTime] = useState("");
+  const [cctvActiveCam, setCctvActiveCam] = useState("CAM_01_KASIR");
+
+  // Realtime Active Activity History logs
+  const [activityHistory, setActivityHistory] = useState<any[]>([
+    { id: 'act1', user: 'Boss Fauzan', action: 'Mengubah parameter metrik Matcha Latte', time: '11:24', date: 'Hari Ini' },
+    { id: 'act2', user: 'System Sync', action: 'Auto-Backup ke InMarket Cloud selesai', time: '11:20', date: 'Hari Ini' },
+    { id: 'act3', user: 'Karyawan', action: 'Verifikasi Absensi via QR Code PLX487', time: '11:02', date: 'Hari Ini' },
+    { id: 'act4', user: 'Boss Fauzan', action: 'Inisialisasi Outlet InMarket Jakarta', time: '08:00', date: 'Hari Ini' }
+  ]);
+
+  const [showQuickFAB, setShowQuickFAB] = useState(false);
+  const [isScannerActive, setIsScannerActive] = useState(false);
+  const [isExportingActive, setIsExportingActive] = useState(false);
+  const [exportProgressVal, setExportProgressVal] = useState(0);
+  const [exportProgressName, setExportProgressName] = useState('laporan_usaha.pdf');
+
+  // ==========================================
+  // PREMIUM INTEGRATIVE METHODS
+  // ==========================================
+
+  // Dynamic Theme Styling Helper
+  const getAccentColorClass = (type: 'text' | 'bg' | 'border' | 'shadow' | 'gradient' | 'text-hover' | 'border-focus' | 'badge') => {
+    switch (accentColor) {
+      case 'cyan':
+        if (type === 'text') return 'text-cyan-400';
+        if (type === 'bg') return 'bg-cyan-500';
+        if (type === 'border') return 'border-cyan-500/40';
+        if (type === 'border-focus') return 'focus:border-cyan-400 focus:shadow-[0_0_12px_rgba(34,211,238,0.3)]';
+        if (type === 'shadow') return 'shadow-[0_0_20px_rgba(34,211,238,0.35)]';
+        if (type === 'gradient') return 'from-cyan-600 to-blue-500';
+        if (type === 'badge') return 'bg-cyan-950/50 border border-cyan-400/30 text-cyan-400';
+        return 'hover:text-cyan-300';
+      case 'emerald':
+        if (type === 'text') return 'text-emerald-400';
+        if (type === 'bg') return 'bg-emerald-500';
+        if (type === 'border') return 'border-emerald-500/40';
+        if (type === 'border-focus') return 'focus:border-emerald-400 focus:shadow-[0_0_12px_rgba(16,185,129,0.3)]';
+        if (type === 'shadow') return 'shadow-[0_0_20px_rgba(16,185,129,0.35)]';
+        if (type === 'gradient') return 'from-emerald-600 to-teal-500';
+        if (type === 'badge') return 'bg-emerald-950/50 border border-emerald-400/30 text-emerald-400';
+        return 'hover:text-emerald-300';
+      case 'rose':
+        if (type === 'text') return 'text-rose-400';
+        if (type === 'bg') return 'bg-rose-500';
+        if (type === 'border') return 'border-rose-500/40';
+        if (type === 'border-focus') return 'focus:border-rose-400 focus:shadow-[0_0_12px_rgba(244,63,94,0.3)]';
+        if (type === 'shadow') return 'shadow-[0_0_20px_rgba(244,63,94,0.35)]';
+        if (type === 'gradient') return 'from-rose-600 to-pink-500';
+        if (type === 'badge') return 'bg-rose-950/50 border border-rose-400/30 text-rose-400';
+        return 'hover:text-rose-300';
+      case 'violet':
+      default:
+        if (type === 'text') return 'text-violet-400';
+        if (type === 'bg') return 'bg-violet-500';
+        if (type === 'border') return 'border-violet-500/40';
+        if (type === 'border-focus') return 'focus:border-cyan-400 focus:shadow-[0_0_12px_rgba(34,211,238,0.3)]';
+        if (type === 'shadow') return 'shadow-[0_0_20px_rgba(139,92,246,0.35)]';
+        if (type === 'gradient') return 'from-violet-600 to-cyan-500';
+        if (type === 'badge') return 'bg-cyan-950/50 border border-cyan-400/30 text-cyan-400';
+        return 'hover:text-violet-300';
+    }
+  };
+
+  // Add Live System Notification
+  const triggerNotification = (type: string, message: string) => {
+    playNotificationSound();
+    const id = 'notif_' + Date.now();
+    setNotifications(prev => [{ id, type, message, time: new Date().toLocaleTimeString().slice(0, 5) }, ...prev].slice(0, 5));
+    
+    // Automatically dismiss after 4.5s
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 4500);
+  };
+
+  // Record action in activity logs
+  const logSystemActivity = (actionText: string) => {
+    const act = {
+      id: 'act_' + Date.now(),
+      user: userRole === 'Owner' ? 'Boss Fauzan' : 'Karyawan',
+      action: actionText,
+      time: new Date().toLocaleTimeString().slice(0, 5),
+      date: 'Hari Ini'
+    };
+    setActivityHistory(prev => [act, ...prev].slice(0, 15));
+  };
+
+  // Run dynamic confetti for targets met
+  const triggerConfettiRain = () => {
+    playSalaryRewardSound();
+    setShowConfetti(true);
+    const newConfetti = Array.from({ length: 45 }).map((_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: -10 - Math.random() * 40,
+      size: 5 + Math.random() * 10,
+      color: ['#A78BFA', '#22D3EE', '#34D399', '#FB7185', '#FBBF24'][Math.floor(Math.random() * 5)],
+      delay: Math.random() * 2,
+      duration: 2 + Math.random() * 2
+    }));
+    setConfettiParticles(newConfetti);
+    setTimeout(() => {
+      setShowConfetti(false);
+    }, 5500);
+  };
+
+  // Multi-Store Swapper
+  const handleSwitchStore = (storeId: string) => {
+    playScanSound();
+    setCurrentStore(storeId);
+    const targetStore = stores.find(s => s.id === storeId);
+    if (targetStore) {
+      triggerNotification('toko', `Sistem beralih ke Cabang: ${targetStore.name}`);
+      logSystemActivity(`Beralih pengelolaan ke outlet ${targetStore.name}`);
+      
+      // Slightly shift stat values for realism
+      const revenueModifier = storeId === 's1' ? 0 : storeId === 's2' ? 1540000 : -420000;
+      setTargets(prev => ({
+        ...prev,
+        salesCurrent: Math.max(800000, 1450000 + revenueModifier)
+      }));
+    }
+  };
+
+  // Holographic download generator with decrypter visualization
+  const handleExportDataFile = (type: string) => {
+    playScanSound();
+    setExportModal(type);
+    setExportProgress(10);
+    
+    // Animate loader
+    const interval = setInterval(() => {
+      setExportProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            setExportModal(null);
+            triggerNotification('transaksi', `Unduhan file ${type.toUpperCase()} sukses terenkripsi.`);
+            logSystemActivity(`Mengekspor laporan data: ${type}`);
+            
+            // Generate real download URI
+            let contentStr = "=== INMARKET 2026 DIGITAL LEDGER REPORT ===\n";
+            contentStr += `Export Date: ${new Date().toLocaleDateString()}\n`;
+            contentStr += `Topic: ${type.toUpperCase()}\n`;
+            contentStr += `Source Node ID: ${currentStore}\n\n`;
+            
+            if (type === 'laporan_usaha') {
+              contentStr += "Parameter,Value\nTotal Omset,Rp 1.450.000\nTarget Target Bisnis,Rp 5.000.000\nEfisiensi Staff,98%";
+            } else if (type === 'stock_barang') {
+              products.forEach(p => {
+                contentStr += `${p.name}, Rp ${p.price}, Stock: ${p.stock}, Barcode: ${p.barcode}\n`;
+              });
+            } else {
+              contentStr += "Audit Log,Sign,Status\nSystem Onlined,0x29ef,Verified\nAttendance Verified,0x2f91,Success";
+            }
+            
+            const blob = new Blob([contentStr], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `inmarket_${type}_${Date.now()}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }, 600);
+          return 100;
+        }
+        return prev + 15;
+      });
+    }, 200);
+  };
+
+  // Voice AI Motivational reader
+  const handleTriggerVoiceAI = () => {
+    if (isVoiceSpeaking) {
+      window.speechSynthesis?.cancel();
+      setIsVoiceSpeaking(false);
+      return;
+    }
+    
+    playSuccessSound();
+    setIsVoiceSpeaking(true);
+    
+    // Build AI Speech
+    const overallRevenue = formattedStatSales + (currentStore === 's1' ? 0 : currentStore === 's2' ? 1540000 : -420000);
+    const textToSpeak = language === 'id' 
+      ? `Halo Boss Fauzan! Total penjualan real-time hari ini adalah ${overallRevenue} Rupiah. Kinerja barista dan stok Matcha Latte membutuhkan atensi Anda karena tersisa ${products.find(p=>p.id==='p2')?.stock || 4} unit. Tetap semangat, mari raih target omset lima juta rupiah kita hari ini!`
+      : `Hello Boss Fauzan! Today's real-time total sales reached ${overallRevenue} Rupiahs. Matcha latte stock has only ${products.find(p=>p.id==='p2')?.stock || 4} left. Let's push hard and smash our five million goal today!`;
+      
+    setVoiceTranscript(textToSpeak);
+    
+    // Synthesis check
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.lang = language === 'id' ? 'id-ID' : 'en-US';
+      utterance.rate = 1.05;
+      utterance.pitch = 1.1;
+      
+      utterance.onend = () => {
+        setIsVoiceSpeaking(false);
+      };
+      
+      window.speechSynthesis.speak(utterance);
+    } else {
+      // Simulate speech visualizer if speech synthesis missing
+      setTimeout(() => {
+        setIsVoiceSpeaking(false);
+      }, 6000);
+    }
+  };
+
+  // Music toggle handler
+  const handleToggleBackgroundMusic = () => {
+    if (isMusicOn) {
+      stopFuturisticAmbience();
+      setIsMusicOn(false);
+    } else {
+      startFuturisticAmbience();
+      setIsMusicOn(true);
+      triggerNotification('toko', 'Cyber Lounge Drone ambient musik diaktifkan.');
+    }
+  };
+
   // On mount check currentUser profile
   useEffect(() => {
     const offlineUser = localStorage.getItem('offline_logged_in_user');
@@ -187,10 +517,58 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       }
     } else {
       // Default sandbox role is Owner
-      setCurrentUser({ email: 'sandbox_owner@inmarket.com', displayName: 'Mock Boss' });
+      setCurrentUser({ email: 'fauzanjefri123@gmail.com', displayName: 'Fauzan' });
       setUserRole('Owner');
     }
+
+    // 1. Splash Screen Auto Ticker Loader
+    const splashInterval = setInterval(() => {
+      setSplashProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(splashInterval);
+          setTimeout(() => {
+            setSystemSplashActive(false);
+            triggerNotification('toko', 'Sistem InMarket Premium Suite v2026 Aktif.');
+          }, 600);
+          return 100;
+        }
+        return prev + 4;
+      });
+    }, 80);
+
+    // 2. Mock CCTV Time updater
+    const cctvInterval = setInterval(() => {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const now = new Date();
+      setCctvTime(`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`);
+    }, 1000);
+
+    // 3. Auto cloud-sync simulation (every 90s)
+    const backupInterval = setInterval(() => {
+      setLastBackupTime("Just now");
+      triggerNotification('toko', 'Sinkronisasi awan sukses! Seluruh instansi aman tercadangkan.');
+      logSystemActivity('Auto Cloud-Backup berhasil mengekspor basis data transaksi & absensi');
+    }, 90000);
+
+    return () => {
+      clearInterval(splashInterval);
+      clearInterval(cctvInterval);
+      clearInterval(backupInterval);
+    };
   }, []);
+
+  // 4. Voice wave simulator loop
+  useEffect(() => {
+    let interval: any;
+    if (isVoiceSpeaking) {
+      interval = setInterval(() => {
+        setWaveformHeight(Array.from({ length: 16 }).map(() => 5 + Math.random() * 45));
+      }, 100);
+    } else {
+      setWaveformHeight(Array(16).fill(5));
+    }
+    return () => clearInterval(interval);
+  }, [isVoiceSpeaking]);
 
   // Save states to local storage on modification
   const persistProducts = (list: any[]) => {
@@ -559,13 +937,41 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
             </div>
           </div>
 
-          <nav className="space-y-1.5">
+          {/* Futuristic Premium Role Switcher Dropdown */}
+          <div className="mb-6 p-3 bg-indigo-500/5 dark:bg-[#120f2b] border border-violet-500/10 rounded-2xl relative">
+            <span className="text-[8px] font-black uppercase text-violet-500 dark:text-violet-400 block mb-1">OPERATOR SYSTEM ACCESS</span>
+            <select
+              value={userRole}
+              onChange={(e) => {
+                const nextRole = e.target.value as any;
+                setUserRole(nextRole);
+                localStorage.setItem('inmarket_user_role', nextRole);
+                playNotificationSound();
+                triggerNotification('system', `Akses sistem dialihkan ke Operator: ${nextRole}`);
+              }}
+              className="w-full text-xs font-black uppercase text-slate-800 dark:text-zinc-200 outline-none bg-transparent cursor-pointer py-1"
+            >
+              <option value="Owner" className="bg-slate-900 border text-white">👑 Owner Boss</option>
+              <option value="Admin" className="bg-slate-900 border text-white">⚡ Admin (Control)</option>
+              <option value="Manager" className="bg-slate-900 border text-white">💼 Manager (Operasional)</option>
+              <option value="Supervisor" className="bg-slate-900 border text-white">🛡️ Supervisor (Staff)</option>
+              <option value="Kasir" className="bg-slate-900 border text-white">🛒 Kasir (POS)</option>
+              <option value="Karyawan" className="bg-slate-900 border text-white">👤 Karyawan</option>
+            </select>
+          </div>
+
+          <nav className="space-y-1 max-h-[360px] overflow-y-auto custom-scrollbar pr-1">
             {[
               { id: 'dashboard', name: t('dashboard'), icon: LayoutDashboard, test: true },
-              { id: 'stock', name: t('products'), icon: Package, test: userRole === 'Owner' },
-              { id: 'kasir', name: t('kasir'), icon: ShoppingCart, test: true },
-              { id: 'absensi', name: t('absensi'), icon: ClipboardCheck, test: true },
-              { id: 'grafik', name: t('settings'), icon: BarChart3, test: userRole === 'Owner' },
+              { id: 'stock', name: t('products'), icon: Package, test: ['Owner', 'Admin', 'Manager', 'Supervisor'].includes(userRole) },
+              { id: 'kasir', name: t('kasir'), icon: ShoppingCart, test: ['Owner', 'Kasir'].includes(userRole) },
+              { id: 'customer', name: 'Pelanggan CRM', icon: Users, test: ['Owner', 'Admin', 'Manager', 'Kasir'].includes(userRole) },
+              { id: 'supplier', name: 'Supplier', icon: Truck, test: ['Owner', 'Admin', 'Manager'].includes(userRole) },
+              { id: 'pengeluaran', name: 'Kas & Usaha', icon: DollarSign, test: ['Owner'].includes(userRole) },
+              { id: 'promo', name: 'Promo & Diskon', icon: Flame, test: ['Owner', 'Admin'].includes(userRole) },
+              { id: 'absensi', name: t('absensi'), icon: ClipboardCheck, test: ['Owner', 'Supervisor', 'Karyawan'].includes(userRole) },
+              { id: 'security', name: 'Keamanan', icon: ShieldCheck, test: ['Owner', 'Admin'].includes(userRole) },
+              { id: 'grafik', name: t('settings'), icon: BarChart3, test: ['Owner'].includes(userRole) },
               { id: 'chat', name: `${t('chat')} (${chatMessages.length})`, icon: MessageCircle, test: true },
               { id: 'ai', name: t('aiAssistant'), icon: Bot, test: true }
             ].map(item => {
@@ -575,14 +981,14 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                   key={item.id} 
                   onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }} 
                   className={cn(
-                    "w-full flex items-center justify-between p-3.5 rounded-2xl text-xs font-black transition-all transform hover:translate-x-1",
+                    "w-full flex items-center justify-between p-3 rounded-2xl text-xs font-black transition-all transform hover:translate-x-1",
                     activeTab === item.id 
                       ? "bg-gradient-to-r from-violet-600/15 to-transparent border-l-4 border-violet-500 dark:text-white" 
                       : "opacity-60 hover:opacity-100 dark:text-violet-200"
                   )}
                 >
                   <span className="flex items-center space-x-3">
-                    <item.icon size={16} /> 
+                    <item.icon size={15} /> 
                     <span>{item.name}</span>
                   </span>
                 </button>
@@ -646,29 +1052,98 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
             <div className="space-y-6">
               
               {/* Responsive layout owner business status settings banner */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center bg-[#eaeaff]/30 dark:bg-violet-950/10 border border-violet-500/10 p-6 rounded-3xl backdrop-blur-md">
-                <div className="md:col-span-8 space-y-1.5">
-                  <h2 className="text-xl md:text-2xl font-black">{language === 'id' ? `Selamat Datang di ${shopData.businessName}` : `Welcome to ${shopData.businessName}`}</h2>
-                  <p className="text-xs opacity-75">
-                    {language === 'id' 
-                      ? 'InMarket siap mempercepat pengelolaan kasir, sinkronisasi inventaris ganda, dan absensi swafoto.' 
-                      : 'InMarket coordinates secure checkout registries, double image catalogs, and digital proof metrics.'}
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-center bg-[#eaeaff]/30 dark:bg-[#070514]/70 border border-violet-500/20 p-6 rounded-3xl backdrop-blur-md shadow-lg relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-r from-violet-600/5 to-transparent pointer-events-none" />
+                
+                {/* Weather widget & Auto greetings */}
+                <div className="xl:col-span-8 space-y-3 relative z-10">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className={cn("px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider", getAccentColorClass('badge'))}>
+                      🌌 SYSTEM NODE 2026 ACTIVE
+                    </span>
+                    <div className="flex items-center gap-1 text-xs opacity-80 font-mono">
+                      <Cloud className="w-4 h-4 text-cyan-400 animate-pulse" />
+                      <span>Cyber-Grid Weather: 29°C / Cloudy Cyber-Mint</span>
+                    </div>
+                  </div>
+
+                  <h2 className="text-xl md:text-3xl font-black tracking-tight">
+                    {getGreeting() === 'Selamat Malam' ? 'Selamat malam' : getGreeting() === 'Selamat Sore' ? 'Selamat sore' : getGreeting() === 'Selamat Siang' ? 'Selamat siang' : 'Selamat pagi'},{" "}
+                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-violet-400 via-pink-400 to-cyan-300">
+                      Fauzan
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl">
+                    Outlet aktif saat ini: <strong className="text-violet-400 font-mono tracking-wider">{stores.find(s => s.id === currentStore)?.name}</strong>. 
+                    Semua modul pencatatan digital kasir, evaluasi bento target, analisis motivasi kecerdasan buatan, dan CCTV tersinkronisasi.
                   </p>
                 </div>
 
-                <div className="md:col-span-4 flex flex-col gap-2">
-                  <label className="text-[9px] font-mono opacity-50 text-right uppercase tracking-widest">{t('storeStatus')}</label>
+                {/* Cloud Auto-Backup state widget & Store toggle */}
+                <div className="xl:col-span-4 flex flex-col md:flex-row xl:flex-col gap-3 relative z-10 xl:items-end">
+                  <div className="bg-[#120f26]/80 border border-cyan-500/20 rounded-2xl p-3 flex items-center justify-between gap-4 w-full max-w-sm">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-cyan-950/40 border border-cyan-400/20 flex items-center justify-center text-cyan-400">
+                        <Cloud className="w-4 h-4 animate-bounce" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] block text-cyan-400 opacity-60 font-mono leading-none font-bold uppercase">CLOUD STATUS</span>
+                        <span className="text-xs font-semibold text-slate-200">Last backup {lastBackupTime}</span>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        playScanSound(); 
+                        setLastBackupTime("Just now"); 
+                        triggerNotification('toko', 'Sinkronisasi awan dipaksa berhasil!');
+                        logSystemActivity('Backup manual instansi lokal dipicu oleh Owner');
+                      }} 
+                      title="Sync Manual"
+                      className="p-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
                   <button 
                     onClick={handleToggleStore}
                     className={cn(
-                      "py-3.5 px-6 rounded-2xl font-black text-xs tracking-widest uppercase text-white shadow-xl flex items-center justify-center gap-2 transition-all duration-300",
+                      "py-3 px-5 rounded-2xl font-black text-xs tracking-widest uppercase text-white shadow-xl flex items-center justify-center gap-2 transition-all duration-300 cursor-pointer w-full max-w-sm xl:max-w-none",
                       isStoreOpen 
                         ? "bg-gradient-to-r from-emerald-500 to-teal-600 shadow-emerald-500/10 border border-emerald-400/20" 
                         : "bg-gradient-to-r from-red-500 to-rose-600 shadow-rose-500/10 border border-rose-400/20"
                     )}
                   >
-                    {isStoreOpen ? t('openStore') : t('closeStore')}
+                    <span className="relative flex h-2 w-2">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isStoreOpen ? 'bg-white' : 'bg-rose-300'}`}></span>
+                      <span className={`relative inline-flex rounded-full h-2 w-2 ${isStoreOpen ? 'bg-white' : 'bg-rose-500'}`}></span>
+                    </span>
+                    {isStoreOpen ? 'TOKO_DI_BUKA' : 'TOKO_DI_TUTUP'}
                   </button>
+                </div>
+              </div>
+
+              {/* MULTI OUTLET SWITCHER CAPSULE BAR */}
+              <div className="bg-[#0b0821]/60 border border-violet-500/10 rounded-2xl p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 backdrop-blur-md">
+                <span className="text-[10px] font-mono tracking-widest text-[#9333ea] dark:text-violet-400 font-bold uppercase ml-2.5">
+                  🏢 CABANG OUTLET SWITCHER :
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {stores.map((st) => (
+                    <button
+                      key={st.id}
+                      onClick={() => handleSwitchStore(st.id)}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-bold leading-none tracking-wide transition-all uppercase cursor-pointer flex items-center gap-1.5",
+                        currentStore === st.id
+                          ? "bg-gradient-to-r from-violet-600 to-indigo-500 text-white shadow-[0_0_12px_rgba(139,92,246,0.4)]"
+                          : "bg-slate-500/5 hover:bg-slate-500/10 text-slate-600 dark:text-slate-300 border border-transparent hover:border-violet-500/10"
+                      )}
+                    >
+                      <Globe className="w-3.5 h-3.5 opacity-60" />
+                      {st.name.split(' ')[2]?.replace('(', '').replace(')', '') || st.type}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -759,104 +1234,581 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                 </div>
 
               </div>
+
+              {/* ================================================= */}
+              {/* STARTUP AI PREMIUM MODULES - BENTO SUITE */}
+              {/* ================================================= */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-6">
+                
+                {/* COLUMN 1: INTERACTION & INTUITION CORE */}
+                <div className="lg:col-span-8 space-y-6">
+                  
+                  {/* FEATURE: BUSINESS TARGETS & METRICS (Target Bisnis) */}
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl relative overflow-hidden text-slate-800 dark:text-violet-100">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/5 rounded-full blur-3xl pointer-events-none" />
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-500/10 pb-4 mb-4 gap-2">
+                      <h4 className="text-sm font-black uppercase tracking-widest font-mono text-violet-400 flex items-center gap-2">
+                        <Sparkle className="w-4 h-4 text-violet-400 animate-spin" />
+                        TARGET OPERASIONAL DAN REWARD BISNIS
+                      </h4>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            playClickSound();
+                            setTargets(prev => {
+                              const nextSales = prev.salesCurrent + 500000;
+                              if (nextSales >= prev.salesTarget) {
+                                triggerConfettiRain();
+                                triggerNotification('transaksi', 'Target Penjualan Hari Ini Sukses Tercapai! 🏆');
+                                logSystemActivity('Owner mencapai OMSET TARGET harian Rp 5.000.000');
+                              }
+                              return { ...prev, salesCurrent: Math.min(prev.salesTarget, nextSales) };
+                            });
+                          }}
+                          className="px-2.5 py-1 text-[10px] uppercase font-bold rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/20 transition-all cursor-pointer"
+                        >
+                          + Rp500k Omset
+                        </button>
+                        <button 
+                          onClick={() => {
+                            playClickSound();
+                            setTargets(prev => {
+                              const nextTrans = prev.transCurrent + 2;
+                              if (nextTrans >= prev.transTarget) {
+                                triggerConfettiRain();
+                                triggerNotification('transaksi', 'Target Transaksi Sukses Terpenuhi! ⭐');
+                              }
+                              return { ...prev, transCurrent: Math.min(prev.transTarget, nextTrans) };
+                            });
+                          }}
+                          className="px-2.5 py-1 text-[10px] uppercase font-bold rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/20 transition-all cursor-pointer"
+                        >
+                          +2 Transaksi
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+                      <div className="bg-slate-500/5 border border-violet-500/10 p-4 rounded-2xl flex flex-col justify-between">
+                        <div>
+                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">TARGET OMSET</span>
+                          <span className="text-sm font-black text-violet-400 block mt-1">Rp {targets.salesCurrent.toLocaleString()} / Rp {targets.salesTarget.toLocaleString()}</span>
+                        </div>
+                        <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden mt-3">
+                          <div 
+                            style={{ width: `${(targets.salesCurrent / targets.salesTarget) * 100}%` }}
+                            className="bg-indigo-500 h-full rounded-full shadow-[0_0_8px_#6366f1] transition-all duration-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-500/5 border border-violet-500/10 p-4 rounded-2xl flex flex-col justify-between">
+                        <div>
+                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">TARGET TRANSAKASI</span>
+                          <span className="text-sm font-black text-cyan-400 block mt-1">{targets.transCurrent} / {targets.transTarget} POS</span>
+                        </div>
+                        <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden mt-3">
+                          <div 
+                            style={{ width: `${(targets.transCurrent / targets.transTarget) * 100}%` }}
+                            className="bg-cyan-400 h-full rounded-full shadow-[0_0_8px_#22d3ee] transition-all duration-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-500/5 border border-violet-500/10 p-4 rounded-2xl flex flex-col justify-between">
+                        <div>
+                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">PRESTASI CABANG</span>
+                          <span className="text-sm font-black text-emerald-400 block mt-1">{targets.developmentProgress}% EFISIENSI</span>
+                        </div>
+                        <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden mt-3">
+                          <div 
+                            style={{ width: `${targets.developmentProgress}%` }}
+                            className="bg-emerald-400 h-full rounded-full shadow-[0_0_8px_#34d399] transition-all duration-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 bg-gradient-to-r from-violet-950/20 to-indigo-950/30 border border-violet-500/10 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                        <Award className="w-5 h-5 text-amber-400 animate-bounce flex-shrink-0" />
+                        <span>Mencapai target harian untuk membuka bonus <strong>Holographic Business Master</strong> badge!</span>
+                      </div>
+                      <button 
+                        onClick={triggerConfettiRain}
+                        className="text-[10px] uppercase font-mono tracking-widest text-[#a855f7] dark:text-cyan-400 font-extrabold hover:underline cursor-pointer"
+                      >
+                        CELEBRATE 🎉
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* FEATURE: HOLOGRAPHIC GLASS CALENDAR (Calendar Usaha) */}
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl text-slate-800 dark:text-violet-100">
+                    <div className="flex items-center justify-between border-b border-slate-500/10 pb-4 mb-4">
+                      <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-cyan-400" />
+                        KALENDER & JADWAL OPERASIONAL
+                      </h4>
+                      <button 
+                        onClick={() => {
+                          playClickSound();
+                          const title = prompt(language==='id' ? "Sebutkan nama agenda baru:" : "Enter new event details:");
+                          if (title) {
+                            const newEv = { id: 'cl_' + Date.now(), date: selectedDate, title, type: 'event' };
+                            setCalendarEvents(prev => [...prev, newEv]);
+                            triggerNotification('chat', `Agenda ditambahkan untuk tanggal ${selectedDate}!`);
+                            logSystemActivity(`Menambahkan agenda bisnis harian tanggal ${selectedDate}`);
+                          }
+                        }}
+                        className="px-2.5 py-1 text-[10px] uppercase font-bold rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/20 transition-all cursor-pointer"
+                      >
+                        + Agenda Baru
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                      <div className="md:col-span-7 bg-slate-500/5 border border-violet-500/5 rounded-2xl p-4">
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="text-xs font-black font-mono tracking-wider uppercase text-slate-600 dark:text-slate-300">MEI 2026</span>
+                          <span className="text-[10px] font-mono text-[#a855f7]">CURRENT DATABASE MONTH</span>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-bold text-slate-400 opacity-60 mb-2">
+                          <span>S</span><span>S</span><span>R</span><span>K</span><span>J</span><span>S</span><span>M</span>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1.5">
+                          {Array.from({ length: 30 }).map((_, idx) => {
+                            const day = String(idx + 1);
+                            const hasEvent = calendarEvents.some(e => e.date === day);
+                            const isSelected = selectedDate === day;
+                            return (
+                              <button
+                                key={idx}
+                                onClick={() => { playClickSound(); setSelectedDate(day); }}
+                                className={cn(
+                                  "aspect-square rounded-xl text-xs font-semibold flex flex-col justify-center items-center transition-all relative cursor-pointer",
+                                  isSelected 
+                                    ? "bg-gradient-to-tr from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20 border border-cyan-400"
+                                    : "bg-slate-500/5 text-slate-600 dark:text-slate-300 hover:bg-slate-500/15 border border-transparent hover:border-violet-500/10",
+                                  hasEvent && !isSelected && "border-b-2 border-emerald-400"
+                                )}
+                              >
+                                {day}
+                                {hasEvent && (
+                                  <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-5 flex flex-col justify-between">
+                        <div className="space-y-3">
+                          <span className="text-[10px] font-mono font-bold tracking-widest text-[#a855f7] dark:text-cyan-400 uppercase block">
+                            AGENDA TANGGAL MEI {selectedDate} :
+                          </span>
+                          
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {calendarEvents.filter(e => e.date === selectedDate).length === 0 ? (
+                              <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs font-mono">
+                                No scheduling node found today.
+                              </div>
+                            ) : (
+                              calendarEvents.filter(e => e.date === selectedDate).map((ev) => (
+                                <div key={ev.id} className="p-3 bg-slate-500/5 dark:bg-[#130f2f]/60 border border-slate-500/10 dark:border-violet-500/10 rounded-xl relative group flex justify-between items-center">
+                                  <div className="flex gap-2 items-center">
+                                    <span className={`w-1.5 h-1.5 rounded-full ${
+                                      ev.type === 'warning' ? 'bg-amber-400' :
+                                      ev.type === 'info' ? 'bg-cyan-400' :
+                                      ev.type === 'payout' ? 'bg-emerald-400' : 'bg-violet-400'
+                                    }`} />
+                                    <span className="text-xs text-slate-700 dark:text-slate-200">{ev.title}</span>
+                                  </div>
+                                  <button 
+                                    onClick={() => {
+                                      playScanSound();
+                                      setCalendarEvents(prev => prev.filter(e => e.id !== ev.id));
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 text-[10px] text-red-500 hover:underline transition-opacity cursor-pointer"
+                                  >
+                                    HAPUS
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-slate-500/5 dark:bg-[#120f2b] rounded-xl border border-dashed border-slate-500/20 text-[10.5px] text-slate-500 leading-relaxed font-mono mt-4">
+                          ℹ️ Gunakan modal agenda operasional untuk restock barang harian, jadwal libur bersama, reminder gajian staf.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FEATURE: VOICE AI ASSISTANT HUB WITH OSCILLOSCOPE WAVEFORM */}
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl relative overflow-hidden text-slate-800 dark:text-violet-100">
+                    <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-600/5 rounded-full blur-3xl pointer-events-none" />
+                    
+                    <div className="flex items-center justify-between border-b border-slate-500/10 pb-4 mb-4">
+                      <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 flex items-center gap-2">
+                        <Bot className="w-4 h-4 text-cyan-400 animate-pulse" />
+                        INMARKET VOICE AI COMPANION
+                      </h4>
+                      <button
+                        onClick={handleToggleBackgroundMusic}
+                        className={cn(
+                          "px-2.5 py-1 text-[10px] uppercase font-bold rounded-lg border transition-all cursor-pointer flex items-center gap-1",
+                          isMusicOn 
+                            ? "bg-emerald-500/15 border-emerald-400/30 text-emerald-300"
+                            : "bg-slate-500/10 border-slate-500/20 text-slate-400"
+                        )}
+                      >
+                        {isMusicOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                        {isMusicOn ? 'MUSIC: ON' : 'MUSIC: OFF'}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                      <div className="md:col-span-8 space-y-3">
+                        <p className="text-xs text-slate-500 dark:text-slate-300 leading-relaxed">
+                          AI InMarket siap membacakan performa finansial toko, memotivasi staf, serta melakukan forecasting inventaris via asisten suara premium.
+                        </p>
+                        
+                        <div className="bg-slate-500/5 dark:bg-[#120f28]/70 border border-slate-500/10 dark:border-violet-500/10 rounded-2xl p-4 min-h-[50px] relative">
+                          <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                            <span className={cn("inline-block w-2 h-2 rounded-full", isVoiceSpeaking ? "bg-emerald-400 animate-ping" : "bg-slate-500")} />
+                            <span className="text-[8px] font-mono opacity-50 uppercase tracking-widest">{isVoiceSpeaking ? "SPEAKING_AI" : "STANDBY_NODE"}</span>
+                          </div>
+                          
+                          <span className="text-[8px] block font-mono text-cyan-400 mb-1 font-bold uppercase">AI ANALYST TRANSCRIPT:</span>
+                          <span className="text-xs text-slate-700 dark:text-slate-200 block font-mono leading-relaxed">
+                            {voiceTranscript || "Klik 'VOICE BRIEFING EXECUTIVE' untuk menyalakan suara panduan analis instan AI..."}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-4 flex flex-col items-center gap-4">
+                        <div className="flex items-end justify-center gap-1.5 h-16 w-full max-w-[200px]">
+                          {waveformHeight.map((h, i) => (
+                            <motion.div
+                              key={i}
+                              animate={{ height: isVoiceSpeaking ? h : 5 }}
+                              transition={{ type: 'spring', stiffness: 350, damping: 12 }}
+                              className="w-1.5 bg-gradient-to-t from-cyan-500 via-indigo-500 to-violet-500 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.4)]"
+                              style={{ height: '5px' }}
+                            />
+                          ))}
+                        </div>
+
+                        <button
+                          onClick={handleTriggerVoiceAI}
+                          className={cn(
+                            "py-3 px-5 w-full rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-lg text-white",
+                            isVoiceSpeaking 
+                              ? "bg-red-600 hover:bg-red-700 shadow-red-500/10 border border-red-500/20" 
+                              : "bg-gradient-to-r from-[#9333ea] to-[#4f46e5] hover:brightness-110 shadow-[0_0_15px_rgba(147,51,234,0.45)] border border-violet-500/20"
+                          )}
+                        >
+                          <Bot className="w-4 h-4 text-white" />
+                          {isVoiceSpeaking ? 'TERMINATE VOICE' : 'VOICE BRIEFING EXECUTIVE'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FEATURE: CHRONO MATRIX MANUAL CUSTOMIZER (Custom Dashboard) */}
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl text-slate-800 dark:text-violet-100">
+                    <h4 className="text-sm font-black uppercase tracking-widest font-mono text-[#a855f7] dark:text-violet-400 border-b border-slate-500/10 pb-4 mb-4 flex items-center gap-2">
+                      <Settings className="w-4 h-4 text-violet-400 animate-spin" />
+                      🌌 MULTI-THEME NEON CUSTOMIZER PANEL
+                    </h4>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-mono font-bold tracking-widest text-[#a855f7] dark:text-cyan-400 uppercase">1. ACCENT NEON GLOW</label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { name: 'violet', label: 'Violet', color: 'bg-violet-600' },
+                            { name: 'cyan', label: 'Cyan', color: 'bg-cyan-400' },
+                            { name: 'emerald', label: 'Emerald', color: 'bg-emerald-500' },
+                            { name: 'rose', label: 'Rose', color: 'bg-rose-500' }
+                          ].map((clr) => (
+                            <button
+                              key={clr.name}
+                              onClick={() => { playClickSound(); setAccentColor(clr.name as any); triggerNotification('toko', `Tema aksen berubah ke ${clr.label}`); }}
+                              className={cn(
+                                "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase transition flex items-center gap-1.5 cursor-pointer border",
+                                accentColor === clr.name ? "border-violet-400 dark:border-violet-400 text-slate-800 dark:text-white bg-slate-500/10" : "border-slate-500/10 text-slate-500 bg-transparent"
+                              )}
+                            >
+                              <span className={`w-2 h-2 rounded-full ${clr.color}`} />
+                              {clr.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-mono font-bold tracking-widest text-[#a855f7] dark:text-cyan-400 uppercase">2. WALLPAPER BACKGROUND</label>
+                        <div className="flex gap-2">
+                          {[
+                            { id: 'cyber-matrix', label: 'Grid Matrix' },
+                            { id: 'cosmic-neon', label: 'Cosmic' },
+                            { id: 'deep-obsidian', label: 'Obsidian' }
+                          ].map((bgT) => (
+                            <button
+                              key={bgT.id}
+                              onClick={() => { playClickSound(); setBackgroundTheme(bgT.id as any); }}
+                              className={cn(
+                                "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase transition cursor-pointer border",
+                                backgroundTheme === bgT.id ? "text-violet-500 border-violet-500 bg-slate-500/10" : "text-slate-500 border-slate-500/10"
+                              )}
+                            >
+                              {bgT.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-mono font-bold tracking-widest text-[#a855f7] dark:text-cyan-400 uppercase">3. GLOW EFFECT</label>
+                        <div className="flex gap-2">
+                          {[
+                            { id: 'high', label: 'MAX' },
+                            { id: 'medium', label: 'MED' },
+                            { id: 'hologram', label: 'SPECTRE' }
+                          ].map((intens) => (
+                            <button
+                              key={intens.id}
+                              onClick={() => { playClickSound(); setNeonIntensity(intens.id as any); }}
+                              className={cn(
+                                "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase leading-none tracking-wide transition cursor-pointer border",
+                                neonIntensity === intens.id ? "border-cyan-400 bg-cyan-400/5 text-cyan-500" : "text-slate-500 border-transparent bg-slate-500/5 hover:bg-slate-500/10"
+                              )}
+                            >
+                              {intens.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* COLUMN 2: TELEMETRY & CHRONICLES */}
+                <div className="lg:col-span-4 space-y-6">
+                  
+                  {/* FEATURE: CCTV LIVE STREAM STORE DEMO MONITOR */}
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl overflow-hidden relative text-slate-800 dark:text-violet-100">
+                    <div className="flex items-center justify-between border-b border-slate-500/10 pb-4 mb-4">
+                      <h4 className="text-sm font-black uppercase tracking-widest font-mono text-rose-400 flex items-center gap-2">
+                        <Camera className="w-4 h-4 text-rose-400 animate-pulse" />
+                        MONITOR CCTV DEMO
+                      </h4>
+                      <span className="text-[9px] font-mono bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 px-2 py-0.5 rounded-md animate-pulse">
+                        ● LIVE
+                      </span>
+                    </div>
+
+                    <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-500/10 dark:border-red-500/15">
+                      <div className="absolute inset-0 bg-[#0d140e] opacity-40 select-none pointer-events-none" />
+                      <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,36,0.35)_1px,transparent_1px),linear-gradient(90deg,rgba(18,16,36,0.35)_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
+                      <div className="absolute top-0 left-0 w-full h-1 bg-green-500/15 animate-[scan_2.8s_linear_infinite] shadow-[0_0_10px_#22c55e]" />
+
+                      <div className="absolute top-3 left-3 font-mono text-[9px] text-[#22c55e] space-y-0.5 pointer-events-none">
+                        <div>INMARKET_CCTV_STREAM_MAIN</div>
+                        <div>NODE_ID: {currentUser?.email || 'OFF_0019'}</div>
+                        <div>ISO_INDX_22026: 800</div>
+                      </div>
+
+                      <div className="absolute bottom-3 left-3 text-[10px] text-green-400 bg-black/70 px-2 py-1 rounded border border-green-500/20 font-mono tracking-widest pointer-events-none">
+                        CAM: {cctvActiveCam}
+                      </div>
+
+                      <div className="absolute bottom-3 right-3 text-[9px] text-[#22c55e] font-mono leading-none pointer-events-none">
+                        {cctvTime} UTC
+                      </div>
+
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <Tv className="w-8 h-8 text-green-500/30 animate-pulse animate-duration-1000" />
+                        <span className="text-[9px] font-mono text-green-400/40 ml-1.5 uppercase">SYSTEM_SECURE_FEED</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      {[
+                        { id: 'CAM_01_KASIR', label: 'Area Kasir' },
+                        { id: 'CAM_02_LOUNGE', label: 'Lobby Utama' },
+                        { id: 'CAM_03_BAR', label: 'Bar Racikan' },
+                        { id: 'CAM_04_GUDANG', label: 'Vault Stok' }
+                      ].map((cam) => (
+                        <button
+                          key={cam.id}
+                          onClick={() => { playClickSound(); setCctvActiveCam(cam.id); }}
+                          className={cn(
+                            "px-2 py-1 border rounded-lg text-[9px] font-bold uppercase transition text-left cursor-pointer",
+                            cctvActiveCam === cam.id
+                              ? "bg-rose-500/10 border-rose-500/30 text-rose-500 dark:text-rose-400"
+                              : "bg-transparent border-slate-500/10 text-slate-500 hover:bg-slate-500/5"
+                          )}
+                        >
+                          🎬 {cam.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* FEATURE: HOLOGRAPHIC EXPORT DATA LABELS (Export Data) */}
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl relative overflow-hidden text-slate-800 dark:text-violet-100">
+                    <h4 className="text-sm font-black uppercase tracking-widest font-mono text-emerald-500 dark:text-emerald-400 border-b border-slate-500/10 pb-4 mb-4 flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-400 animate-bounce" />
+                      UNDUH DATA & EXPORT
+                    </h4>
+                    
+                    <div className="space-y-2.5">
+                      {[
+                        { id: 'laporan_usaha', label: 'Laporan Finansial Toko', format: 'PDF Document' },
+                        { id: 'stock_barang', label: 'Ledger Riwayat Stok', format: 'Excel Sheet' },
+                        { id: 'absensi', label: 'Data Absensi Pegawai', format: 'CSV Ledger' },
+                        { id: 'transaksi', label: 'Histori Penjualan POS', format: 'Excel Sheet' }
+                      ].map((exp) => (
+                        <button
+                          key={exp.id}
+                          onClick={() => handleExportDataFile(exp.id)}
+                          className="w-full p-3 rounded-2xl bg-slate-500/5 dark:bg-[#120f26]/40 border border-slate-500/10 dark:border-slate-500/5 hover:border-emerald-500/40 text-left transition flex items-center justify-between group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-xl bg-emerald-950/40 border border-emerald-500/20 flex items-center justify-center text-emerald-400 capitalize">
+                              <Download className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block group-hover:text-emerald-400 dark:group-hover:text-emerald-300 transition-colors uppercase leading-tight">{exp.label}</span>
+                              <span className="text-[9px] font-mono text-emerald-400 opacity-80 uppercase">{exp.format}</span>
+                            </div>
+                          </div>
+                          <Download className="w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-400 transition" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* FEATURE: ACCREDITED ACHIEVEMENTS & BADGES (Badge & Achievement) */}
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl relative overflow-hidden text-slate-800 dark:text-violet-100">
+                    <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 border-b border-slate-500/10 pb-4 mb-4 flex items-center gap-2">
+                      <Award className="w-4 h-4 text-cyan-400" />
+                      BADGE & PENCAPAIAN TOKO
+                    </h4>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      {badges.map((bdg) => (
+                        <div
+                          key={bdg.id}
+                          onClick={() => { playClickSound(); setActiveBadgePopup(bdg); }}
+                          className={cn(
+                            "aspect-square p-2 border transition flex flex-col justify-between cursor-pointer relative group rounded-2xl",
+                            bdg.unlocked 
+                              ? "bg-slate-500/5 border-cyan-500/20 text-cyan-500 dark:text-cyan-400 hover:border-cyan-400" 
+                              : "bg-slate-500/5 border-slate-500/15 text-slate-400 dark:text-slate-500 opacity-50"
+                          )}
+                        >
+                          <div className="text-right">
+                            <span className={cn(
+                              "text-[7px] font-mono font-black uppercase px-1 rounded-sm leading-none",
+                              bdg.tier === 'legendary' ? 'bg-amber-400/10 border border-amber-400/20 text-amber-500' :
+                              bdg.tier === 'epic' ? 'bg-violet-400/10 border border-violet-400/10 text-violet-500' :
+                              bdg.tier === 'rare' ? 'bg-cyan-400/10 border border-cyan-400/10 text-cyan-500' : 'bg-slate-500/10 text-slate-400'
+                            )}>
+                              {bdg.tier}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col items-center text-center justify-center py-1">
+                            {bdg.icon === 'Crown' ? <Crown className="w-5 h-5 animate-bounce" /> :
+                             bdg.icon === 'Award' ? <Award className="w-5 h-5" /> :
+                             bdg.icon === 'TrendingUp' ? <TrendingUp className="w-5 h-5 text-emerald-400" /> :
+                             bdg.icon === 'ClipboardCheck' ? <ClipboardCheck className="w-5 h-5" /> :
+                             bdg.icon === 'Users' ? <Users className="w-5 h-5" /> : <Sparkles className="w-5 h-5 text-[#a855f7]" />}
+                            <span className="text-[8.5px] font-black mt-2 leading-none uppercase tracking-wide group-hover:scale-105 transition-transform">{bdg.name}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="text-[9px] font-mono opacity-50 text-center mt-3">Klik kartu badge di atas untuk detail kredensial.</p>
+                  </div>
+
+                  {/* FEATURE: REAL-TIME ACTIVITY TIMELINE LOG (History Aktivitas) */}
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl relative overflow-hidden text-slate-800 dark:text-violet-100">
+                    <h4 className="text-sm font-black uppercase tracking-widest font-mono text-violet-400 border-b border-slate-500/10 pb-4 mb-4 flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-violet-400 animate-spin" />
+                      AKTIVITAS TERKINI (REAL-TIME)
+                    </h4>
+
+                    <div className="relative border-l border-slate-500/10 ml-3 pl-5 space-y-4 max-h-[290px] overflow-y-auto">
+                      {activityHistory.map((act) => (
+                        <div key={act.id} className="relative text-xs leading-relaxed">
+                          <span className="absolute -left-[26px] top-1.5 w-3 h-3 rounded-full bg-white dark:bg-slate-950 border border-violet-500/40 shadow-sm flex items-center justify-center">
+                            <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-ping" />
+                          </span>
+                          
+                          <div className="flex items-center justify-between gap-1 mb-0.5">
+                            <strong className="text-slate-700 dark:text-slate-100 font-bold uppercase tracking-wider">{act.user}</strong>
+                            <span className="text-[9px] font-mono text-cyan-500">{act.time}</span>
+                          </div>
+                          
+                          <p className="text-slate-500 dark:text-slate-400 font-mono text-[11px] leading-tight text-justify">
+                            {act.action}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+
+              {/* ================================================= */}
+              {/* BRAND ADVISOR PANEL: AI ANALYTICS (AI Analytics) */}
+              {/* ================================================= */}
+              <div className="p-6 rounded-3xl bg-[#070517]/85 border border-violet-500/20 shadow-2xl relative overflow-hidden">
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_40%_at_50%_40%,rgba(147,51,234,0.08),transparent_100%)]" />
+                
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-2 flex-1">
+                    <span className="px-3 py-1 bg-violet-500/10 border border-violet-500/30 text-[#c084fc] font-mono font-black text-[10px] tracking-widest rounded-full uppercase">
+                      🧬 COGNITIVE ANALYTICS INSIGHTS
+                    </span>
+                    <h3 className="text-lg md:text-xl font-extrabold text-white">REKOMENDASI PREDIKTIF INMARKET AI</h3>
+                    <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
+                      "Prediksi omset kuartal menunjukkan peningkatan <strong className="text-indigo-400 font-mono">35%</strong> pada minuman espresso berkat peningkatan pemesanan online dari Sumatra Roast Node. Optimasi supply kopi instan dianjurkan sebelum tanggal gajian karyawan."
+                    </p>
+                  </div>
+
+                  <div className="bg-[#12102a]/80 p-4 rounded-2xl border border-cyan-500/10 flex flex-wrap gap-4 md:self-center">
+                    <div className="text-center">
+                      <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase text-slate-400">PRODUK TRENDING</span>
+                      <span className="text-sm font-black text-cyan-400 block pb-1">Espresso Sumatran (+35%)</span>
+                    </div>
+                    <div className="w-[1px] bg-slate-500/20 self-stretch" />
+                    <div className="text-center">
+                      <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase text-slate-400">PREDIKSI LAJU LABA</span>
+                      <span className="text-sm font-black text-emerald-400 block">Rp1.450.000 / bln</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+
             </div>
           )}
 
           {/* TAB 2: INVENTORY STOCK MANAGER */}
           {activeTab === 'stock' && userRole === 'Owner' && (
-            <div className="space-y-6">
-              
-              {/* Product insert card */}
-              <div className="p-6 rounded-3xl bg-white dark:bg-[#0b0816]/90 border border-indigo-100/10">
-                <h3 className="text-sm font-black uppercase tracking-widest text-indigo-500 mb-4">{t('addProduct')}</h3>
-                <form onSubmit={handleAddProduct} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <input required placeholder={t('name')} value={prodForm.name} onChange={e => setProdForm({...prodForm, name: e.target.value})} className="p-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none" />
-                  <input required type="number" placeholder={`${t('price')} (Rp)`} value={prodForm.price} onChange={e => setProdForm({...prodForm, price: e.target.value})} className="p-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none" />
-                  <input required type="number" placeholder={t('stock')} value={prodForm.stock} onChange={e => setProdForm({...prodForm, stock: e.target.value})} className="p-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none" />
-                  <select value={prodForm.category} onChange={e => setProdForm({...prodForm, category: e.target.value})} className="p-3 bg-slate-900 text-white border border-indigo-100/10 rounded-xl text-xs font-bold outline-none">
-                    <option value="Minuman">Minuman (Drinks)</option>
-                    <option value="Makanan">Makanan (Food)</option>
-                    <option value="Pastry">Pastry</option>
-                    <option value="Lainnya">Lainnya (Other)</option>
-                  </select>
-
-                  <input placeholder={language === 'id' ? 'Supplier (Opsional)' : 'Supplier (Optional)'} value={prodForm.supplier} onChange={e => setProdForm({...prodForm, supplier: e.target.value})} className="p-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none" />
-                  <input placeholder={language === 'id' ? 'Barcode (Opsional)' : 'Barcode (Optional)'} value={prodForm.barcode} onChange={e => setProdForm({...prodForm, barcode: e.target.value})} className="p-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none" />
-                  <input placeholder={language === 'id' ? 'URL Foto Produk (Opsional)' : 'Product Photo URL (Optional)'} value={prodForm.photoUrl} onChange={e => setProdForm({...prodForm, photoUrl: e.target.value})} className="p-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold col-span-1 md:col-span-2 outline-none" />
-                  
-                  <button type="submit" className="md:col-span-4 py-3.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition cursor-pointer">
-                    <Plus size={16} /> {t('addProduct')}
-                  </button>
-                </form>
-              </div>
-
-              {/* Products list grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {products.map(p => {
-                  // Determine stock color rules
-                  const isRed = p.stock < 5;
-                  const isYellow = p.stock >= 5 && p.stock < 15;
-                  
-                  return (
-                    <div 
-                      key={p.id} 
-                      className={cn(
-                        "p-5 rounded-3xl border transition bg-white dark:bg-black/20 text-slate-800 dark:text-violet-100 space-y-4 hover:-translate-y-1 duration-300",
-                        isRed ? "border-rose-500 shadow-[0_0_15px_rgba(239,68,68,0.12)]" : isYellow ? "border-amber-500" : "border-indigo-100/10"
-                      )}
-                    >
-                      <div className="h-32 bg-slate-100 dark:bg-white/5 rounded-2xl flex items-center justify-center overflow-hidden border border-indigo-100/10 group relative">
-                        <img 
-                          src={p.photoUrl || 'https://images.unsplash.com/photo-1541167760496-1628856ab772?q=80&w=300&auto=format&fit=crop'} 
-                          alt={p.name} 
-                          className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" 
-                        />
-                        <span className={cn(
-                          "absolute top-2 right-2 text-[9px] px-2 py-0.5 rounded-full text-white font-black",
-                          isRed ? "bg-rose-500" : isYellow ? "bg-amber-500" : "bg-emerald-500"
-                        )}>
-                          {isRed ? (language === 'id' ? 'HAMPIR HABIS' : 'CRITICAL') : isYellow ? (language === 'id' ? 'MENIPIS' : 'LOW') : (language === 'id' ? 'AMAN' : 'SAFE')}
-                        </span>
-                      </div>
-
-                      <div>
-                        <h4 className="text-xs font-black truncate text-indigo-600 dark:text-violet-400">{p.name}</h4>
-                        <div className="text-[10px] opacity-40 font-mono mt-0.5">BARCODE: {p.barcode}</div>
-                      </div>
-
-                      <div className="flex justify-between items-baseline border-b border-indigo-100/5 pb-2">
-                        <span className="text-xs font-extrabold">Rp{p.price.toLocaleString()}</span>
-                        <span className="text-[10px] opacity-50 block">{language === 'id' ? `Stok: ${p.stock}` : `Stock: ${p.stock}`}</span>
-                      </div>
-
-                      <div className="text-[10px] opacity-60 leading-relaxed font-semibold truncate hover:text-clip">{p.desc}</div>
-
-                      <div className="flex gap-2 items-center">
-                        <div className="text-[9px] opacity-40 uppercase truncate max-w-[120px]">SUPPLIER: {p.supplier}</div>
-                        <div className="ml-auto flex items-center gap-1.5">
-                          <button 
-                            type="button" 
-                            onClick={() => handleOpenEditModal(p)} 
-                            className="text-violet-500 dark:text-violet-400 p-1.5 hover:bg-violet-500/15 rounded-lg transition duration-200"
-                            title={language === 'id' ? 'Edit Produk' : 'Edit Product'}
-                          >
-                            <Edit size={14} />
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => handleDeleteProduct(p.id)} 
-                            className="text-rose-500 p-1.5 hover:bg-rose-500/15 rounded-lg transition duration-200"
-                            title={language === 'id' ? 'Hapus Produk' : 'Delete Product'}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <Inventory />
           )}
 
           {/* TAB 3: POS PAYMENT POINT CASHIER */}
@@ -865,7 +1817,113 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
               
               {/* Product catalog picker */}
               <div className="lg:col-span-8 space-y-6">
-                <h3 className="text-sm font-black uppercase tracking-widest text-indigo-500 mb-2">{language === 'id' ? 'Katalog Pembelian Kasir' : 'POS Cashier Catalog'}</h3>
+
+                {/* ADVANCED HOLOGRAPHIC BARCODE / QR SCANNER WIDGET */}
+                <div className="bg-[#0c0822]/85 border border-violet-500/20 p-5 rounded-3xl backdrop-blur-md relative overflow-hidden text-slate-100">
+                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-transparent pointer-events-none" />
+                  
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-500/10 pb-4 mb-4 gap-2">
+                    <div>
+                      <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 flex items-center gap-2">
+                        <ScanBarcode className="w-5 h-5 text-cyan-400 animate-pulse" />
+                        TERMINAL SCANNER BARCODE & QR HOLOGRAFIS
+                      </h4>
+                      <p className="text-[10px] font-mono text-slate-400 mt-1">AI MENELUSURI INDEKS STOK SECARA REAL-TIME & MEMASUKKAN PRODUK KE KERANJANG</p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          playClickSound();
+                          setIsScannerActive(!isScannerActive);
+                          if (!isScannerActive) {
+                            triggerNotification('toko', 'Sistem Kamera Sensor QR/Barcode Diaktifkan');
+                          }
+                        }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                          isScannerActive 
+                            ? "bg-rose-500/20 border border-rose-500/30 text-rose-400" 
+                            : "bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.2)]"
+                        )}
+                      >
+                        {isScannerActive ? 'MATIKAN KAMERA' : 'AKTIFKAN EMULATOR LASER'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isScannerActive ? (
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+                      
+                      {/* Live scanning video stream simulation */}
+                      <div className="md:col-span-6 relative aspect-video bg-black rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.15)]">
+                        <div className="absolute inset-0 bg-cyan-950/20 pointer-events-none" />
+                        
+                        {/* Interactive red scanning laser visual */}
+                        <motion.div 
+                          animate={{ y: ["0%", "100%", "0%"] }} 
+                          transition={{ repeat: Infinity, duration: 2.2, ease: "linear" }}
+                          className="absolute left-0 w-full h-0.5 bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.85)] z-20"
+                        />
+                        
+                        {/* Target reticle overlay */}
+                        <div className="absolute inset-6 border border-dashed border-cyan-400/40 rounded-xl pointer-events-none flex items-center justify-center">
+                          <div className="border-t-2 border-l-2 border-cyan-400 w-4 h-4 absolute top-0 left-0" />
+                          <div className="border-t-2 border-r-2 border-cyan-400 w-4 h-4 absolute top-0 right-0" />
+                          <div className="border-b-2 border-l-2 border-cyan-400 w-4 h-4 absolute bottom-0 left-0" />
+                          <div className="border-b-2 border-r-2 border-cyan-400 w-4 h-4 absolute bottom-0 right-0" />
+                          
+                          {/* Fake barcode image simulation */}
+                          <div className="w-32 opacity-40 transition duration-500 flex flex-col items-center gap-1">
+                            <span className="font-mono text-[9px] text-cyan-400 tracking-[0.2em]">|||| | || ||| ||</span>
+                            <span className="text-[7.5px] font-mono text-cyan-400 leading-none">89927651026</span>
+                          </div>
+                        </div>
+
+                        <div className="absolute bottom-2 left-2 text-[8px] font-mono text-cyan-400 uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded border border-cyan-500/20">
+                          AI_CCTV_APERTURE_FEED
+                        </div>
+                      </div>
+
+                      {/* Manual mock fast scan buttons */}
+                      <div className="md:col-span-6 space-y-3">
+                        <p className="text-xs text-slate-300">
+                          Tekan produk bersandi barcode di bawah ini untuk mensimulasikan tangkapan sensor scanner fisik secara real-time:
+                        </p>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                          {products.slice(0, 4).map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => {
+                                playScanSound();
+                                addToCart(p);
+                                triggerNotification('transaksi', `SCAN SUKSES: ${p.name} [${p.barcode || '8993010'}] masuk keranjang!`);
+                                logSystemActivity(`Barcode scanned: ${p.name} dimasukkan otomatis ke slip belanja.`);
+                              }}
+                              className="px-3 py-2 bg-slate-900/40 hover:bg-violet-950/30 border border-violet-500/10 hover:border-cyan-400/50 rounded-xl text-[11px] font-mono font-black text-left flex flex-col justify-between cursor-pointer leading-tight transition-all"
+                            >
+                              <div className="truncate text-slate-100">{p.name}</div>
+                              <div className="text-[9px] text-cyan-400 mt-1 font-semibold tracking-wider font-mono">BC: {p.barcode || '8992026' + p.id.slice(0, 3)}</div>
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="text-[10px] text-slate-400 leading-relaxed font-mono">
+                          💡 Alat ini memverifikasi barcode serial number, memeriksa ketersediaan stok ganda, dan melacak harga terkini.
+                        </div>
+                      </div>
+
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-xs text-slate-400 italic font-mono border border-dashed border-[#6366f131] rounded-2xl">
+                      Kamera scanner offline. Klik tombol emulator di atas untuk menyimulasikan tangkapan laser sensor.
+                    </div>
+                  )}
+
+                </div>
+
+                <h3 className="text-sm font-black uppercase tracking-widest text-indigo-500 mb-2 mt-6">{language === 'id' ? 'Katalog Pembelian Kasir' : 'POS Cashier Catalog'}</h3>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {products.map(p => (
@@ -1080,6 +2138,36 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
             </div>
           )}
 
+          {activeTab === 'customer' && (
+            <div className="space-y-6">
+              <CustomersManager />
+            </div>
+          )}
+
+          {activeTab === 'supplier' && (
+            <div className="space-y-6">
+              <SuppliersManager />
+            </div>
+          )}
+
+          {activeTab === 'pengeluaran' && (
+            <div className="space-y-6">
+              <ExpensesManager />
+            </div>
+          )}
+
+          {activeTab === 'promo' && (
+            <div className="space-y-6">
+              <PromoManager />
+            </div>
+          )}
+
+          {activeTab === 'security' && (
+            <div className="space-y-6">
+              <SecurityCenter />
+            </div>
+          )}
+
           {/* TAB 6: LOBBY STAFF CHAT WITH ALERTS */}
           {activeTab === 'chat' && (
             <div className="max-w-2xl mx-auto flex flex-col justify-between p-6 bg-white dark:bg-[#0a0714] rounded-3xl border border-indigo-100/10 h-[500px] shadow-2xl relative">
@@ -1205,51 +2293,167 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       {/* MODAL 1: Digital payment receipt */}
       <AnimatePresence>
         {receipt && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+            <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-cyan-400/10 border border-cyan-400/30 text-cyan-300 font-mono text-[10px] uppercase font-bold py-1.5 px-4 rounded-full animate-pulse">
+              🖨️ PRINTER POS AUTOMATED SUCCESS SHOWER
+            </div>
+            
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="p-6 rounded-[28px] bg-white border border-gray-100 text-slate-800 w-full max-w-sm font-sans relative shadow-2xl"
+              initial={{ y: -80, opacity: 0, scale: 0.95 }} 
+              animate={{ y: 0, opacity: 1, scale: 1 }} 
+              exit={{ y: 80, opacity: 0, scale: 0.95 }}
+              transition={{ type: 'spring', stiffness: 220, damping: 25 }}
+              className="rounded-[32px] bg-slate-50 border-4 border-[#cbd5e1] text-slate-800 w-full max-w-sm font-sans relative shadow-2xl overflow-hidden"
             >
-              <div className="text-center pb-4 border-b border-dashed border-slate-200">
-                <Crown className="text-violet-600 mx-auto mb-2" size={32} />
-                <h3 className="text-base font-black uppercase text-indigo-950 font-mono">INMARKET RECEIPT</h3>
-                <p className="text-[10px] opacity-60">MEMBERSHIP NODE: CLOUD_POS_2026</p>
+              {/* Thermal printer slit card top decorator */}
+              <div className="bg-gradient-to-r from-neutral-800 to-neutral-700 h-4 w-full flex items-center justify-around border-b border-black">
+                {[...Array(30)].map((_, i) => (
+                  <div key={i} className="w-1.5 h-1 bg-neutral-900 border-r border-[#454545]" />
+                ))}
               </div>
 
-              <div className="py-4 space-y-2.5 text-xs border-b border-dashed border-slate-200">
-                <div className="flex justify-between font-mono text-[9px] opacity-50">
-                  <span>TX_ID: {receipt.id}</span>
-                  <span>DATE: {receipt.date}</span>
+              <div className="p-6 space-y-4">
+                
+                <div className="text-center pb-4 border-b-2 border-dashed border-slate-300">
+                  <div className="inline-flex p-2 bg-gradient-to-tr from-violet-600 to-indigo-600 text-white rounded-full mb-2">
+                    <Crown size={24} className="animate-bounce" />
+                  </div>
+                  <h3 className="text-base font-black uppercase text-indigo-950 font-serif tracking-tight">☕ InMarket Lounge</h3>
+                  <p className="text-[10px] opacity-60 font-medium">CLOUD TERMINAL SECURE POS #4821</p>
+                  <p className="text-[9px] font-mono opacity-80 mt-1 uppercase text-violet-600">Operator Kasir: {userRole}</p>
                 </div>
 
-                <div className="space-y-1">
-                  {receipt.items?.map((item: any) => (
-                    <div key={item.id} className="flex justify-between font-semibold text-slate-700">
-                      <span>{item.name} x{item.qty}</span>
-                      <span>Rp{(item.price * item.qty).toLocaleString()}</span>
+                <div className="space-y-2.5 text-xs border-b-2 border-dashed border-slate-300 pb-4">
+                  <div className="flex justify-between font-mono text-[9px] opacity-55">
+                    <span>TX_ID: {receipt.id}</span>
+                    <span>{receipt.date}</span>
+                  </div>
+
+                  <div className="space-y-1 bg-slate-100/50 p-2.5 rounded-xl border border-slate-200">
+                    {receipt.items?.map((item: any) => (
+                      <div key={item.id} className="flex justify-between font-semibold text-slate-700 text-[11px]">
+                        <span>{item.name} x{item.qty}</span>
+                        <span>Rp{(item.price * item.qty).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-between font-extrabold text-[#7c3aed] text-xs">
+                    <span>PAYMENT METHOD</span>
+                    <span>{receipt.meth}</span>
+                  </div>
+                </div>
+
+                {/* DYNAMIC SHADOW QR CODE FOR INSTANT QRIS PAYMENTS */}
+                <div className="flex flex-col items-center justify-center p-2.5 border border-slate-200 rounded-2xl bg-white/80 my-2">
+                  <div className="w-20 h-20 bg-neutral-900 rounded-lg p-1.5 flex flex-col justify-between relative overflow-hidden" title="Simulated Live QR Code for POS Receipts">
+                    <div className="flex justify-between w-full h-1/4">
+                      <div className="w-5 h-5 border-[3px] border-white rounded-sm" />
+                      <div className="w-5 h-5 border-[3px] border-white rounded-sm" />
                     </div>
-                  ))}
+                    <div className="flex justify-between w-full h-1/4 items-end">
+                      <div className="w-5 h-5 border-[3px] border-white rounded-sm" />
+                      <div className="w-2 h-2 bg-white" />
+                    </div>
+                    {/* Pixels pattern blocks */}
+                    <div className="absolute inset-x-5 inset-y-5 grid grid-cols-5 gap-0.5 pointer-events-none select-none opacity-85">
+                      {[...Array(25)].map((_, i) => (
+                        <div key={i} className={i % 3 === 0 || i % 5 === 1 ? "bg-white w-full h-full" : "bg-transparent"} />
+                      ))}
+                    </div>
+                  </div>
+                  <span className="text-[7.5px] font-mono font-black text-rose-500 mt-1 uppercase tracking-widest">QRIS BANK ACCOUNT SECURE</span>
                 </div>
 
-                <div className="flex justify-between font-extrabold text-[#7c3aed]">
-                  <span>PAYMENT METHOD</span>
-                  <span>{receipt.meth}</span>
+                {/* INTERACTIVE THIN AND THICK CONTINUOUS BARCODE */}
+                <div className="space-y-1">
+                  <div className="flex justify-center items-center gap-[1px] py-1 h-7 select-none opacity-85">
+                    {[1, 3, 1, 2, 1, 4, 1, 2, 3, 1, 2, 1, 2, 4, 1, 2, 1, 1, 3, 2, 1, 2, 4, 1, 1].map((w, idx) => (
+                      <div key={idx} className="bg-black h-full" style={{ width: `${w}px` }} />
+                    ))}
+                  </div>
+                  <span className="font-mono text-[8px] block text-center tracking-widest text-slate-500">{receipt.id.toUpperCase()}</span>
                 </div>
-              </div>
 
-              <div className="pt-4 flex justify-between items-baseline">
-                <span className="text-xs font-black uppercase tracking-wider opacity-60">TOTAL BILL</span>
-                <span className="text-xl font-black text-rose-500">Rp{receipt.total.toLocaleString()}</span>
-              </div>
+                <div className="pt-2 flex justify-between items-baseline">
+                  <span className="text-[10px] font-black uppercase tracking-wider opacity-60">TOTAL BILL PAID</span>
+                  <span className="text-lg font-black text-violet-700">Rp{receipt.total.toLocaleString()}</span>
+                </div>
 
-              <button 
-                onClick={() => setReceipt(null)}
-                className="w-full mt-6 py-3 bg-violet-600 text-white rounded-xl text-xs font-black uppercase hover:bg-violet-700 transition tracking-widest cursor-pointer"
-              >
-                OKE, LANJUTKAN
-              </button>
+                {/* PREMIUM ACTIONS COMPARTMENT */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200">
+                  <button 
+                    onClick={() => {
+                      let content = `=============================\n`;
+                      content += `       INMARKET LOUNGE       \n`;
+                      content += `   Premium POS Suite 2026   \n`;
+                      content += `=============================\n`;
+                      content += `ID TX    : ${receipt.id}\n`;
+                      content += `Waktu    : ${receipt.date}\n`;
+                      content += `Kasir    : ${userRole}\n`;
+                      content += `Metode   : ${receipt.meth}\n`;
+                      content += `-----------------------------\n`;
+                      receipt.items?.forEach((i: any) => {
+                        content += `${i.name} x${i.qty}  Rp ${(i.price * i.qty).toLocaleString()}\n`;
+                      });
+                      content += `-----------------------------\n`;
+                      content += `TOTAL    : Rp ${receipt.total.toLocaleString()}\n`;
+                      content += `=============================\n`;
+                      content += `    TERIMA KASIH BELANJA!    \n`;
+                      content += `=============================\n`;
+                      
+                      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = `InMarket_Struk_${receipt.id}.txt`;
+                      link.click();
+                      URL.revokeObjectURL(url);
+                      playSuccessSound();
+                    }}
+                    className="py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white font-black text-[9px] uppercase tracking-wider rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    💾 DOWNLOAD File
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      let text = `*☕ STRUK BELANJA INMARKET LOUNGE*\n`;
+                      text += `*ID Transaksi:* ${receipt.id}\n`;
+                      text += `*Waktu Belanja:* ${receipt.date}\n`;
+                      text += `*Kasir:* ${userRole}\n`;
+                      text += `-----------------------------\n`;
+                      receipt.items?.forEach((i: any) => {
+                        text += `- ${i.name} (x${i.qty}): Rp ${(i.price * i.qty).toLocaleString()}\n`;
+                      });
+                      text += `-----------------------------\n`;
+                      text += `*Metode Pembayaran:* ${receipt.meth}\n`;
+                      text += `*Total Bill:* *Rp ${receipt.total.toLocaleString()}*\n\n`;
+                      text += `_Terima kasih sudah singgah di lounge premium kami!_`;
+                      
+                      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+                    }}
+                    className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    💬 SHARE WHATSAPP
+                  </button>
+                </div>
+
+                <button 
+                  onClick={() => setReceipt(null)}
+                  className="w-full mt-2 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-black uppercase transition tracking-widest cursor-pointer shadow-md"
+                >
+                  🟢 SELESAI & TUTUP
+                </button>
+
+              </div>
+              
+              {/* Thermal printer wavy cut bottom details */}
+              <div className="h-2 w-full flex overflow-hidden">
+                {[...Array(20)].map((_, i) => (
+                  <div key={i} className="w-4 h-4 bg-slate-50 rotate-45 transform origin-top-left -translate-y-2 border-r border-[#cbd5e1]" />
+                ))}
+              </div>
             </motion.div>
           </div>
         )}
@@ -1537,6 +2741,326 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
           </div>
         )}
       </AnimatePresence>
+
+
+      {/* ================================================= */}
+      {/* CINEMATIC SYSTEM SPLASH SCREEN */}
+      {/* ================================================= */}
+      <AnimatePresence>
+        {systemSplashActive && (
+          <motion.div 
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.8 }}
+            className="fixed inset-0 bg-[#03010c] flex flex-col items-center justify-center z-[9999] overflow-hidden"
+          >
+            {/* Holographic matrix grids */}
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,36,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(18,16,36,0.5)_1px,transparent_1px)] bg-[size:32px_32px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-30 pointer-events-none" />
+            
+            <div className="absolute top-1/4 w-[500px] h-[500px] bg-violet-600/10 rounded-full blur-[140px] animate-pulse pointer-events-none" />
+            <div className="absolute bottom-1/4 w-[300px] h-[300px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none" />
+
+            <motion.div 
+              initial={{ scale: 0.8, y: 30, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              transition={{ duration: 1.2, ease: "easeOut" }}
+              className="relative flex flex-col items-center max-w-md text-center p-8 z-10"
+            >
+              {/* Animated Hologram Logo M */}
+              <div className="relative mb-6">
+                <div className="absolute -inset-1.5 rounded-2xl bg-gradient-to-r from-violet-600 to-cyan-400 blur-lg opacity-75 animate-pulse" />
+                <div className="relative w-20 h-20 rounded-2xl bg-slate-900 border border-violet-500/30 flex items-center justify-center font-black text-4xl text-white shadow-[0_0_25px_rgba(139,92,246,0.6)]">
+                  M
+                  <span className="absolute text-[8px] tracking-widest bottom-1 font-mono text-cyan-400">2026</span>
+                </div>
+              </div>
+
+              {/* AI Scanning Line effect */}
+              <div className="relative w-64 h-1 border border-violet-500/20 bg-violet-950/30 rounded-full overflow-hidden mb-8">
+                <motion.div 
+                  animate={{ x: ["-100%", "100%"] }} 
+                  transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                  className="w-1/3 h-full bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]"
+                />
+              </div>
+
+              <h1 className="text-2xl font-black tracking-wider text-slate-100 font-sans mb-2">
+                INMARKET <span className="text-cyan-400 font-mono">2026</span>
+              </h1>
+              <p className="text-xs text-slate-400 font-mono tracking-widest mb-10 text-center uppercase">
+                PROVISIONING INSTANCE SUITE COGNITIVE...
+              </p>
+
+              <div className="w-64">
+                <div className="flex justify-between text-[10px] font-mono text-cyan-400 mb-1.5">
+                  <span>MEMUAT PROTOKOL...</span>
+                  <span>{splashProgress}%</span>
+                </div>
+                {/* Progress Bar */}
+                <div className="h-1.5 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-900">
+                  <div 
+                    style={{ width: `${splashProgress}%` }} 
+                    className="h-full bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-400 transition-all duration-100 shadow-[0_0_8px_rgba(34,211,238,0.5)]"
+                  />
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
+      {/* ================================================= */}
+      {/* REAL-TIME NOTIFICATION POPUP PORTAL */}
+      {/* ================================================= */}
+      <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-3 w-80 pointer-events-none">
+        <AnimatePresence>
+          {notifications.map((notif) => (
+            <motion.div
+              key={notif.id}
+              initial={{ opacity: 0, x: 80, y: -20, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 100, scale: 0.8 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="pointer-events-auto bg-[#0a051d]/90 backdrop-blur-md border border-violet-500/40 rounded-2xl p-4 shadow-[0_0_20px_rgba(139,92,246,0.3)] flex items-start gap-4 relative overflow-hidden"
+            >
+              {/* Cyber side indicator */}
+              <div className={`absolute top-0 left-0 w-1.5 h-full ${
+                notif.type === 'stok' ? 'bg-amber-400' :
+                notif.type === 'transaksi' ? 'bg-cyan-400' :
+                notif.type === 'karyawan' ? 'bg-emerald-400' :
+                notif.type === 'chat' ? 'bg-violet-400' : 'bg-rose-400'
+              }`} />
+              
+              <div className="flex-1">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-[10px] font-mono tracking-widest text-cyan-400 uppercase font-black">
+                    {notif.type.toUpperCase()} STATUS
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-mono">{notif.time}</span>
+                </div>
+                <p className="text-xs text-slate-100 font-sans leading-relaxed">
+                  {notif.message}
+                </p>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+
+      {/* ================================================= */}
+      {/* TARGET REWARD CONFETTI RAIN OVERLAY */}
+      {/* ================================================= */}
+      {showConfetti && (
+        <div className="fixed inset-0 pointer-events-none z-[9998] overflow-hidden">
+          {confettiParticles.map((p) => (
+            <motion.div
+              key={p.id}
+              initial={{ x: `${p.x}vw`, y: `${p.y}vh`, rotate: 0 }}
+              animate={{ 
+                y: '110vh', 
+                rotate: 360,
+                x: [`${p.x}vw`, `${p.x + (Math.random() * 10 - 5)}vw`]
+              }}
+              transition={{ 
+                duration: p.duration, 
+                delay: p.delay, 
+                ease: "easeOut",
+                repeat: Infinity 
+              }}
+              style={{
+                position: 'absolute',
+                width: p.size,
+                height: p.size,
+                borderRadius: Math.random() > 0.5 ? '50%' : '0%',
+                backgroundColor: p.color,
+                boxShadow: '0 0 8px currentColor'
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+
+      {/* ================================================= */}
+      {/* BADGES DETAILS POPUP DIALOG */}
+      {/* ================================================= */}
+      <AnimatePresence>
+        {activeBadgePopup && (
+          <div className="fixed inset-0 z-[9990] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 15 }}
+              className="w-full max-w-sm bg-[#0e0a26]/95 border border-violet-500/30 rounded-3xl p-6 relative overflow-hidden text-center"
+            >
+              <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-violet-600 via-indigo-400 to-cyan-400" />
+              
+              <div className="flex justify-center my-6 text-cyan-400 animate-bounce">
+                {activeBadgePopup.icon === 'Crown' ? <Crown className="w-14 h-14" /> :
+                 activeBadgePopup.icon === 'Award' ? <Award className="w-14 h-14" /> :
+                 activeBadgePopup.icon === 'TrendingUp' ? <TrendingUp className="w-14 h-14" /> :
+                 activeBadgePopup.icon === 'ClipboardCheck' ? <ClipboardCheck className="w-14 h-14" /> :
+                 activeBadgePopup.icon === 'Users' ? <Users className="w-14 h-14" /> : <Sparkles className="w-14 h-14" />}
+              </div>
+
+              <span className="px-2.5 py-1 text-[9px] uppercase font-mono tracking-widest text-[#a855f7] bg-violet-505/10 rounded-md border border-violet-500/20">
+                Tier: {activeBadgePopup.tier}
+              </span>
+
+              <h3 className="text-lg font-black text-slate-100 uppercase mt-4">{activeBadgePopup.name}</h3>
+              <p className="text-xs text-slate-400 mt-2 font-mono leading-relaxed px-2">
+                {activeBadgePopup.desc}
+              </p>
+
+              <div className="bg-[#151136]/50 border border-slate-500/15 rounded-xl p-3 mt-5 text-[10px] font-mono text-cyan-400 uppercase">
+                {activeBadgePopup.unlocked ? `Unlocked: 🚀 VERIFIED BY KASIR ENGINE` : `Locked: 🔒 REQUIRED ${activeBadgePopup.target} EXP`}
+              </div>
+
+              <button
+                onClick={() => { playClickSound(); setActiveBadgePopup(null); }}
+                className="w-full py-2.5 mt-6 bg-slate-900 border border-slate-500/20 rounded-xl text-xs font-black uppercase text-white hover:bg-slate-800 transition duration-150 cursor-pointer"
+              >
+                TUTUP JENDELA
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+
+      {/* ================================================= */}
+      {/* COGNITIVE DATA EXPORTER SLIDER */}
+      {/* ================================================= */}
+      <AnimatePresence>
+        {isExportingActive && (
+          <div className="fixed inset-0 z-[9990] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              className="w-full max-w-md bg-[#0a0621]/95 border border-cyan-500/30 rounded-3xl p-6 relative overflow-hidden"
+            >
+              <div className="absolute top-0 inset-x-0 h-1 bg-cyan-400" />
+              
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-cyan-950/50 border border-cyan-400/20 flex items-center justify-center text-cyan-300">
+                  <FileSpreadsheet className="w-5 h-5 animate-spin" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-100 uppercase tracking-widest leading-none font-mono">HOLOGRAPHIC EXPORT COMPILATION</h4>
+                  <span className="text-[9px] text-cyan-400 uppercase tracking-wider font-mono">COMPILING FILE: {exportProgressName}</span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed font-mono">
+                Mengompilasi enkripsi baris transaksi, menyusun metadata visual ganda, absensi karyawan, dan mengekspor ke dalam ledger berkas lokal...
+              </p>
+
+              {/* Loader ticker */}
+              <div className="my-6">
+                <div className="flex justify-between text-[10px] font-mono text-[#06b6d4] mb-1.5">
+                  <span>ENCRYPTING LEDGER SEGMENTS</span>
+                  <span>{exportProgressVal}%</span>
+                </div>
+                <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-900 relative">
+                  <div 
+                    style={{ width: `${exportProgressVal}%` }}
+                    className="h-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 transition-all duration-100"
+                  />
+                </div>
+              </div>
+
+              {exportProgressVal >= 100 ? (
+                <div className="space-y-4">
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-400/20 rounded-xl text-center text-xs text-emerald-400 font-mono">
+                    ✅ EXPORT FILE DITERBITKAN DENGAN AMAN!
+                  </div>
+                  <button
+                    onClick={() => { playSuccessSound(); setIsExportingActive(false); }}
+                    className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-black uppercase text-xs tracking-wider rounded-xl hover:brightness-110 transition duration-200 cursor-pointer"
+                  >
+                    UNDUH BERKAS SEKARANG
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center py-2 text-[10px] font-mono text-slate-500 uppercase tracking-wider">
+                  ⚠️ Jangan mematikan koneksi ledger selagi ekspor berlangsung...
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+
+      {/* ================================================= */}
+      {/* QUICK FLOATING ACTIONS SHORTCUT ACTION BUTTONS (FAB) */}
+      {/* ================================================= */}
+      <div className="fixed bottom-6 right-6 z-[9980] flex flex-col items-end gap-3 pointer-events-none">
+        
+        {/* Expanded micro actions panels */}
+        <AnimatePresence>
+          {showQuickFAB && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.8 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 25, scale: 0.8 }}
+              className="pointer-events-auto flex flex-col gap-2 bg-[#09051d]/90 backdrop-blur-md border border-violet-500/20 p-3 rounded-2xl shadow-xl w-48"
+            >
+              <h5 className="text-[8px] font-mono font-black text-slate-400 dark:text-cyan-400 tracking-widest uppercase border-b border-white/5 pb-1.5 mb-1.5">INTELLIGENT HUB</h5>
+              
+              <button 
+                onClick={() => { playClickSound(); setShowQuickFAB(false); setActiveTab('kasir'); }}
+                className="w-full text-left py-1 px-2 hover:bg-slate-500/10 rounded-lg text-xs font-semibold text-slate-200 hover:text-cyan-400 transition"
+              >
+                🛒 POS Kasir Cepat
+              </button>
+
+              <button 
+                onClick={() => { playClickSound(); setShowQuickFAB(false); setActiveTab('stock'); }}
+                className="w-full text-left py-1 px-2 hover:bg-slate-500/10 rounded-lg text-xs font-semibold text-slate-200 hover:text-cyan-300 transition"
+              >
+                📦 Tambah Produk
+              </button>
+
+              {userRole === 'Owner' ? (
+                <>
+                  <button 
+                    onClick={() => { playClickSound(); setShowQuickFAB(false); handlePaySalary(); }}
+                    className="w-full text-left py-1 px-2 hover:bg-slate-500/10 rounded-lg text-xs font-semibold text-slate-200 hover:text-emerald-400 transition"
+                  >
+                    💸 Bayar Gaji Staf
+                  </button>
+                  <button 
+                    onClick={() => { playClickSound(); setShowQuickFAB(false); handleGenerateAttendanceCode(); }}
+                    className="w-full text-left py-1 px-2 hover:bg-slate-500/10 rounded-lg text-xs font-semibold text-slate-200 hover:text-orange-400 transition"
+                  >
+                    🔑 Buat Kode Absen
+                  </button>
+                </>
+              ) : (
+                <button 
+                  onClick={() => { playClickSound(); setShowQuickFAB(false); setActiveTab('absensi'); }}
+                  className="w-full text-left py-1 px-2 hover:bg-slate-500/10 rounded-lg text-xs font-semibold text-slate-200 hover:text-violet-400 transition"
+                >
+                  📷 Swafoto CheckIn
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Core trigger button */}
+        <button
+          onClick={() => { playClickSound(); setShowQuickFAB(!showQuickFAB); }}
+          className="pointer-events-auto w-12 h-12 rounded-full bg-gradient-to-tr from-violet-600 via-indigo-500 to-cyan-400 text-white flex items-center justify-center shadow-lg hover:shadow-[0_0_20px_rgba(139,92,246,0.6)] cursor-pointer hover:rotate-45 transition duration-300"
+        >
+          <Sparkles className="w-5 h-5" />
+        </button>
+      </div>
+
 
     </div>
   );

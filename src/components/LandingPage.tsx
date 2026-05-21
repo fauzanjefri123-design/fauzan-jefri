@@ -22,7 +22,9 @@ import {
   Star,
   Sparkles,
   Lock,
-  Compass
+  Compass,
+  Languages,
+  Globe
 } from 'lucide-react';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import ThemeLanguageSwitcher from './ThemeLanguageSwitcher';
@@ -31,7 +33,7 @@ import { playSuccessSound } from '../lib/sounds';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function LandingPage({ onNavigate }: { onNavigate: (view: string) => void }) {
-  const { language, theme } = useThemeLanguage();
+  const { language, theme, setLanguage } = useThemeLanguage();
   const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
 
   // Active FAQ index accordions state
@@ -512,11 +514,59 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: string)
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto pt-8 border-t border-indigo-100/10 dark:border-white/5 flex flex-col md:flex-row justify-between items-center gap-4 text-xs opacity-40 font-mono">
-          <p>© 2026 InMarket Platform. All systems operational. Made with love for the 2026 global MSME trade.</p>
-          <div className="flex gap-6">
-            <span>DEEP PURPLE THEME v2.5</span>
-            <span>SEO_ACTIVE</span>
+        <div className="max-w-7xl mx-auto pt-8 border-t border-indigo-100/10 dark:border-white/5 flex flex-col lg:flex-row justify-between items-center gap-6 text-xs font-mono">
+          <div className="space-y-1 opacity-55 max-w-xl text-center lg:text-left">
+            <p>© 2026 InMarket Platform. All systems operational. Made with love for the 2026 global MSME trade.</p>
+            <div className="flex justify-center lg:justify-start gap-6 text-[10px]">
+              <span>DEEP PURPLE THEME v2.5</span>
+              <span>SEO_ACTIVE</span>
+            </div>
+          </div>
+
+          {/* Futuristic Language Selector Component */}
+          <div className="flex flex-col sm:flex-row items-center gap-3 bg-white/5 dark:bg-[#0c0822]/45 border border-violet-500/10 p-2.5 rounded-2xl backdrop-blur-md relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-violet-600/40 via-cyan-400/30 to-transparent" />
+            <div className="flex items-center gap-2 pl-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
+              </span>
+              <span className="text-[10px] font-mono font-black tracking-widest text-[#a855f7] dark:text-cyan-400 uppercase leading-none">
+                {language === 'id' ? 'LOKALISASI SYSTEM : ' : 'SYSTEM LOCALE : '}
+              </span>
+            </div>
+            
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => {
+                  setLanguage('id');
+                  playSuccessSound();
+                }}
+                className={`py-1.5 px-3.5 rounded-xl text-[10px] font-black tracking-widest transition-all duration-300 uppercase cursor-pointer flex items-center justify-center gap-1.5 border leading-none ${
+                  language === 'id'
+                    ? 'bg-gradient-to-r from-violet-600 to-indigo-500 text-white border-violet-500/40 shadow-[0_0_12px_rgba(139,92,246,0.3)] bg-violet-600/20'
+                    : 'bg-transparent border-slate-500/10 text-slate-500 dark:text-slate-400 hover:bg-slate-500/5 hover:border-[#6366f120]'
+                }`}
+              >
+                <span>🇮🇩</span>
+                <span>BAHASA</span>
+              </button>
+              
+              <button
+                onClick={() => {
+                  setLanguage('en');
+                  playSuccessSound();
+                }}
+                className={`py-1.5 px-3.5 rounded-xl text-[10px] font-black tracking-widest transition-all duration-300 uppercase cursor-pointer flex items-center justify-center gap-1.5 border leading-none ${
+                  language === 'en'
+                    ? 'bg-gradient-to-r from-violet-600 to-indigo-500 text-white border-violet-500/40 shadow-[0_0_12px_rgba(139,92,246,0.3)] bg-violet-600/20'
+                    : 'bg-transparent border-slate-500/10 text-slate-500 dark:text-slate-400 hover:bg-slate-500/5 hover:border-[#6366f120]'
+                }`}
+              >
+                <span>🇬🇧</span>
+                <span>ENGLISH</span>
+              </button>
+            </div>
           </div>
         </div>
       </footer>

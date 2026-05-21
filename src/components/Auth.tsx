@@ -17,7 +17,14 @@ import {
   Fingerprint,
   Sparkles,
   Crown,
-  Users
+  Users,
+  Copy,
+  Check,
+  RefreshCw,
+  Settings,
+  Globe,
+  Wifi,
+  ChevronRight
 } from 'lucide-react';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import { translations } from '../lib/translations';
@@ -32,14 +39,50 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
   const [isLoading, setIsLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [localModePrompt, setLocalModePrompt] = useState(false);
 
+  // Connection Diagnostics States
+  const [isNetworkError, setIsNetworkError] = useState(false);
+  const [isPinging, setIsPinging] = useState(false);
+  const [pingResult, setPingResult] = useState<{ status: 'healthy' | 'failed'; latency?: number; error?: string } | null>(null);
+  const [domainCopied, setDomainCopied] = useState(false);
+
   // Floating focus state managers
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+
+  const checkNetworkHealth = async () => {
+    setIsPinging(true);
+    setPingResult(null);
+    const start = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      await fetch('https://identitytoolkit.googleapis.com/$discovery/rest?version=v1', {
+        signal: controller.signal,
+        mode: 'no-cors'
+      });
+      clearTimeout(timeoutId);
+      const latency = Date.now() - start;
+      setPingResult({ status: 'healthy', latency });
+    } catch (err: any) {
+      setPingResult({ status: 'failed', error: err?.message || 'Unreachable' });
+    } finally {
+      setIsPinging(false);
+    }
+  };
+
+  const handleCopyDomain = () => {
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.host);
+      setDomainCopied(true);
+      setTimeout(() => setDomainCopied(false), 2000);
+    }
+  };
 
   const { language, theme } = useThemeLanguage();
   const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
@@ -109,7 +152,9 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setErrorCode(null);
     setSuccess(null);
+    setIsNetworkError(false);
 
     if (!email) {
       setError(language === 'id' ? 'Email wajib diisi.' : 'Email is required.');
@@ -161,9 +206,16 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
           }, 2000);
 
         } catch (firebaseErr: any) {
-          // Check if failure is due to Firebase connection limits/sandbox
-          console.error("Firebase Auth Error:", firebaseErr);
-          const isNetworkErr = firebaseErr?.code?.includes('network') || firebaseErr?.message?.includes('network-request-failed') || firebaseErr?.message?.includes('auth/network-request-failed') || firebaseErr?.message?.includes('apiKey');
+          const errCode = firebaseErr?.code || '';
+          const errMsg = firebaseErr?.message || '';
+          const isNetworkErr = errCode.includes('network') || errMsg.includes('network-request-failed') || errMsg.includes('auth/network-request-failed') || errMsg.includes('apiKey');
+          
+          if (!isNetworkErr) {
+            console.warn("Firebase Auth credentials invalid or rejected:", errCode || errMsg);
+          } else {
+            console.error("Firebase network connection failed:", firebaseErr);
+            setIsNetworkError(true);
+          }
           
           // Test local offline vault matching
           const cachedUserStr = localStorage.getItem('local_user_' + email);
@@ -215,9 +267,26 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
           }, 2000);
 
         } catch (firebaseErr: any) {
-          console.error("Firebase register failed, saving locally:", firebaseErr);
+          const errCode = firebaseErr?.code || '';
+          const errMsg = firebaseErr?.message || '';
           
-          // Force Offline Registration Sync always so developer sandbox doesn't lock up
+          // If the email is already in use, or password is weak, or invalid email, these are genuine auth issues - don't simulate offline success!
+          if (
+            errCode.includes('email-already-in-use') || 
+            errMsg.includes('email-already-in-use') ||
+            errCode.includes('weak-password') || 
+            errMsg.includes('weak-password') ||
+            errCode.includes('invalid-email') || 
+            errMsg.includes('invalid-email')
+          ) {
+            console.warn("Registration rejected due to credentials validation:", errCode || errMsg);
+            throw firebaseErr; // Let the outer catch handle and display it gracefully in the UI
+          }
+          
+          // Otherwise, it is a network error or missing configuration, so safely fall back to offline storage
+          console.warn("Register network/sandbox error, falling back to offline storage:", firebaseErr);
+          setIsNetworkError(true);
+          
           localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role }));
           
           setSuccess(language === 'id' ? 'Registrasi Offline Berhasil! Menyimpan data instansi...' : 'Offline Registration Succeeded! Saving instance assets...');
@@ -230,6 +299,13 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
         }
       }
     } catch (e: any) {
+      const errCode = e?.code || '';
+      const errMsg = e?.message || '';
+      setErrorCode(errCode);
+      const isNetworkErr = errCode.includes('network') || errMsg.includes('network-request-failed') || errMsg.includes('auth/network-request-failed') || errMsg.includes('apiKey');
+      if (isNetworkErr) {
+        setIsNetworkError(true);
+      }
       setError(getErrorMessage(e.code, e.message));
     } finally {
       setIsLoading(false);
@@ -352,12 +428,48 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
                   initial={{ height: 0, opacity: 0, scale: 0.95 }} 
                   animate={{ height: 'auto', opacity: 1, scale: 1 }} 
                   exit={{ height: 0, opacity: 0, scale: 0.95 }}
-                  className="p-4 bg-red-500/10 dark:bg-red-950/30 backdrop-blur-xl border border-red-500/30 rounded-2xl flex items-start gap-3 shadow-[0_0_15px_rgba(239,68,68,0.12)]"
+                  className="p-4 bg-red-500/10 dark:bg-red-950/30 backdrop-blur-xl border border-red-500/30 rounded-2xl flex flex-col gap-3 shadow-[0_0_15px_rgba(239,68,68,0.12)]"
                 >
-                  <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
-                  <div className="text-xs text-red-900 dark:text-red-200 font-semibold leading-relaxed">
-                    {error}
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={16} />
+                    <div className="text-xs text-red-900 dark:text-red-200 font-semibold leading-relaxed">
+                      {error}
+                    </div>
                   </div>
+
+                  {/* Smart Redirect to login if email already exists */}
+                  {errorCode === 'auth/email-already-in-use' && (
+                    <motion.button
+                      type="button"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        setIsLogin(true);
+                        setError(null);
+                        setErrorCode(null);
+                      }}
+                      className="w-full py-2 bg-violet-600 hover:bg-violet-700 text-white font-extrabold text-[10px] rounded-xl tracking-wider uppercase transition-colors flex items-center justify-center gap-1.5 shadow-[0_4px_12px_rgba(109,40,217,0.3)] cursor-pointer"
+                    >
+                      📬 {language === 'id' ? 'MASUK SEKARANG DENGAN EMAIL INI' : 'LOG IN DIRECTLY WITH THIS EMAIL'} <ChevronRight size={12} />
+                    </motion.button>
+                  )}
+
+                  {/* Smart Redirect to register if user is not found */}
+                  {(errorCode === 'auth/user-not-found' || errorCode?.includes('user-not-found')) && (
+                    <motion.button
+                      type="button"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        setIsLogin(false);
+                        setError(null);
+                        setErrorCode(null);
+                      }}
+                      className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-[10px] rounded-xl tracking-wider uppercase transition-colors flex items-center justify-center gap-1.5 shadow-[0_4px_12px_rgba(8,145,178,0.3)] cursor-pointer"
+                    >
+                      👤 {language === 'id' ? 'BUAT AKUN BARU PERTAMA KALI' : 'REGISTER THIS EMAIL INSTANTLY'} <ChevronRight size={12} />
+                    </motion.button>
+                  )}
                 </motion.div>
               )}
 
@@ -453,39 +565,58 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
                       type="button"
                       onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                       className={cn(
-                        "w-full p-4 rounded-2xl border flex items-center justify-between text-left transition-all duration-300 font-bold text-sm",
-                        "bg-[#120826]/40 backdrop-blur-xl border-violet-500/30 text-white",
+                        "w-full p-4 rounded-2xl border flex items-center justify-between text-left transition-all duration-300 font-bold text-sm relative group overflow-hidden",
+                        "text-white bg-[#0f0724]/75 backdrop-blur-2xl border-violet-500/50",
                         isDropdownOpen 
-                          ? "border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.3)] text-white" 
-                          : "hover:border-violet-400/60 hover:shadow-[0_0_15px_rgba(139,92,246,0.2)]"
+                          ? "border-cyan-400 shadow-[0_0_30px_rgba(139,92,246,0.5),_0_0_15px_rgba(34,211,238,0.45)] text-white" 
+                          : "hover:border-violet-400 hover:shadow-[0_0_25px_rgba(139,92,246,0.35),_0_0_12px_rgba(34,211,238,0.25)]"
                       )}
                       style={{
-                        background: 'linear-gradient(135deg, rgba(26,11,54,0.45) 0%, rgba(13,6,32,0.65) 100%)',
+                        background: 'linear-gradient(135deg, rgba(24, 11, 56, 0.75) 0%, rgba(11, 4, 28, 0.95) 100%)',
                       }}
                     >
-                      <span className="flex items-center gap-2.5">
+                      {/* Holographic scanner laser glow effect */}
+                      <span className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/70 to-transparent pointer-events-none" />
+                      <div className="absolute inset-0 bg-[linear-gradient(rgba(139,92,246,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(139,92,246,0.025)_1px,transparent_1px)] bg-[size:10px_10px] pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity" />
+
+                      {/* Sci-fi targeting brackets on the select button */}
+                      <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t-2 border-l-2 border-cyan-400 rounded-tl-sm" />
+                      <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t-2 border-r-2 border-violet-400 rounded-tr-sm" />
+                      <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b-2 border-l-2 border-violet-400 rounded-bl-sm" />
+                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b-2 border-r-2 border-cyan-400 rounded-br-sm" />
+
+                      <span className="flex items-center gap-3 relative z-10">
                         {role === 'Owner' && (
                           <>
-                            <Crown size={18} className="text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.7)] shrink-0 animate-[pulse_2s_infinite]" />
-                            <span className="text-white tracking-wide text-xs font-black">{t('ownerRole').replace(/^👑\s*/, '')}</span>
+                            <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 p-1.5 rounded-lg shadow-[0_0_8px_rgba(251,191,36,0.2)]">
+                              <Crown size={16} className="text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.85)] shrink-0 animate-pulse" />
+                              <ShieldCheck size={14} className="text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.7)]" />
+                            </div>
+                            <span className="text-white tracking-wide text-xs font-black uppercase font-sans">Owner / Boss</span>
                           </>
                         )}
                         {role === 'Employee' && (
                           <>
-                            <Users size={18} className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.7)] shrink-0 animate-[pulse_2s_infinite]" />
-                            <span className="text-white tracking-wide text-xs font-black">{t('employeeRole').replace(/^👨‍💼\s*/, '')}</span>
+                            <div className="flex items-center gap-1.5 bg-cyan-500/10 border border-cyan-500/20 p-1.5 rounded-lg shadow-[0_0_8px_rgba(34,211,238,0.2)]">
+                              <Users size={16} className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.85)] shrink-0 animate-pulse" />
+                              <Fingerprint size={14} className="text-violet-400 drop-shadow-[0_0_6px_rgba(139,92,246,0.7)]" />
+                            </div>
+                            <span className="text-white tracking-wide text-xs font-black uppercase font-sans">Employee / Karyawan</span>
                           </>
                         )}
                         {!role && (
                           <>
-                            <Sparkles size={16} className="text-violet-400 animate-pulse shrink-0" />
-                            <span className="text-violet-200/50 tracking-wide text-xs font-black">
-                              {language === 'id' ? "Pilih Peran Akun" : "Select Register Role"}
+                            <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-cyan-950/40 border border-cyan-500/20">
+                              <Sparkles size={14} className="text-cyan-400 animate-pulse shrink-0 drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]" />
+                            </div>
+                            <span className="text-violet-200/80 tracking-widest text-xs font-bold uppercase font-mono">
+                              {language === 'id' ? "PILIH PERAN AKUN" : "SELECT REGISTER ROLE"}
                             </span>
                           </>
                         )}
                       </span>
-                      <motion.div animate={{ rotate: isDropdownOpen ? 180 : 0 }} className="text-violet-400">
+
+                      <motion.div animate={{ rotate: isDropdownOpen ? 180 : 0 }} className="text-cyan-400 relative z-10 drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]">
                         <ChevronDown size={18} />
                       </motion.div>
                     </button>
@@ -494,82 +625,94 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
                       {isDropdownOpen && (
                         <>
                           <div className="fixed inset-0 z-40" onClick={() => setIsDropdownOpen(false)} />
-                          
-                          <motion.div 
+                                             <motion.div 
                             initial={{ opacity: 0, y: -8, scale: 0.95 }}
                             animate={{ opacity: 1, y: 4, scale: 1 }}
                             exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                            transition={{ duration: 0.15, ease: "easeOut" }}
-                            className="absolute left-0 right-0 z-50 rounded-2xl border p-2 backdrop-blur-2xl space-y-1.5 text-white shadow-[0_0_30px_rgba(139,92,246,0.25),_0_0_15px_rgba(34,211,238,0.15)] overflow-hidden"
+                            transition={{ duration: 0.2, ease: "easeOut" }}
+                            className="absolute left-0 right-0 z-50 rounded-2xl border p-2 backdrop-blur-3xl space-y-2 text-white shadow-[0_0_35px_rgba(139,92,246,0.5),_0_0_20px_rgba(34,211,238,0.35)] overflow-hidden border-violet-500/40"
                             style={{
-                              background: 'linear-gradient(180deg, rgba(32,15,64,0.92) 0%, rgba(13,6,28,0.98) 100%)',
-                              borderColor: 'rgba(167, 139, 250, 0.4)',
+                              background: 'linear-gradient(135deg, rgba(23, 11, 53, 0.88) 0%, rgba(10, 4, 27, 0.98) 100%)',
                             }}
                           >
                             {/* Holographic scanner active line inside dropdown background */}
-                            <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-[pulse_1.5s_infinite]" />
-                            <div className="absolute inset-0 bg-[linear-gradient(rgba(139,92,246,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(139,92,246,0.02)_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
+                            <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-[pulse_1.5s_infinite] shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+                            <div className="absolute inset-0 bg-[linear-gradient(rgba(139,92,246,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(139,92,246,0.035)_1px,transparent_1px)] bg-[size:12px_12px] pointer-events-none opacity-50" />
 
                             <button
                               type="button"
                               onClick={() => { setRole('Owner'); setIsDropdownOpen(false); }}
                               className={cn(
-                                "w-full p-3.5 rounded-xl text-left text-xs font-black flex items-center justify-between transition-all duration-200 border relative group overflow-hidden",
+                                "w-full p-4 rounded-xl text-left text-xs font-black flex items-center justify-between transition-all duration-200 border relative group overflow-hidden",
                                 role === 'Owner' 
-                                  ? "bg-violet-600/35 border-violet-400 text-white shadow-[0_0_15px_rgba(139,92,246,0.3)]" 
-                                  : "border-transparent bg-white/5 hover:bg-violet-600/25 text-violet-200 hover:text-white hover:border-violet-500/20"
+                                  ? "bg-violet-600/35 border-cyan-400/70 text-white shadow-[0_0_18px_rgba(6,182,212,0.3)] bg-gradient-to-r from-violet-600/30 to-[#0e0728]/10" 
+                                  : "border-transparent bg-white/5 hover:bg-violet-600/20 text-slate-200 hover:text-white hover:border-violet-500/30"
                               )}
                             >
-                              <span className="flex items-center gap-3 relative z-10">
-                                <Crown size={16} className={cn(
-                                  "transition-all duration-300", 
-                                  role === 'Owner' ? "text-amber-300 drop-shadow-[0_0_6px_rgba(251,191,36,0.8)]" : "text-amber-400/60 group-hover:text-amber-400"
-                                )} />
-                                <span className="tracking-wide">
-                                  {t('ownerRole').replace(/^👑\s*/, '')}
-                                </span>
+                              <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-violet-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                              <span className="flex items-center gap-3.5 relative z-10">
+                                <div className="flex items-center gap-1.5 shrink-0 bg-black/45 border border-white/10 p-1.5 rounded-lg group-hover:border-violet-500/40 transition-colors">
+                                  <Crown size={16} className={cn(
+                                    "transition-all duration-300", 
+                                    role === 'Owner' ? "text-amber-300 drop-shadow-[0_0_10px_rgba(251,191,36,0.85)]" : "text-amber-400/70 group-hover:text-amber-400 group-hover:drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]"
+                                  )} />
+                                  <ShieldCheck size={14} className={cn(
+                                    "transition-all duration-300", 
+                                    role === 'Owner' ? "text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.85)]" : "text-cyan-400/60 group-hover:text-cyan-400"
+                                  )} />
+                                </div>
+                                <span className="tracking-widest uppercase font-bold text-white">Owner / Boss</span>
                               </span>
                               
-                              <div className="flex items-center gap-2 relative z-10 font-mono text-[9px] text-slate-500 group-hover:text-violet-300 transition-colors">
+                              <div className="flex items-center gap-2 relative z-10 font-mono text-[9px] text-slate-400 group-hover:text-violet-300 transition-colors">
                                 {role === 'Owner' && (
-                                  <span className="font-sans font-black uppercase text-cyan-300 tracking-wider bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-400/40">
+                                  <span className="font-sans font-black uppercase text-cyan-300 tracking-wider bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-400/50 shadow-[0_0_10px_rgba(34,211,238,0.45)]">
                                     {language === 'id' ? 'Aktif' : 'Active'}
                                   </span>
                                 )}
-                                <span>ROLE_01</span>
+                                <span className="opacity-60 font-black">SYS_ADMIN</span>
                               </div>
-                              <div className="absolute inset-0 bg-gradient-to-r from-violet-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-cyan-500/0 via-cyan-400/40 to-cyan-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </button>
 
                             <button
                               type="button"
                               onClick={() => { setRole('Employee'); setIsDropdownOpen(false); }}
                               className={cn(
-                                "w-full p-3.5 rounded-xl text-left text-xs font-black flex items-center justify-between transition-all duration-200 border relative group overflow-hidden",
+                                "w-full p-4 rounded-xl text-left text-xs font-black flex items-center justify-between transition-all duration-200 border relative group overflow-hidden",
                                 role === 'Employee' 
-                                  ? "bg-violet-600/35 border-violet-400 text-white shadow-[0_0_15px_rgba(139,92,246,0.3)]" 
-                                  : "border-transparent bg-white/5 hover:bg-violet-600/25 text-violet-200 hover:text-white hover:border-violet-500/20"
+                                  ? "bg-violet-600/35 border-cyan-400/70 text-white shadow-[0_0_18px_rgba(6,182,212,0.3)] bg-gradient-to-r from-violet-600/30 to-[#0e0728]/10" 
+                                  : "border-transparent bg-white/5 hover:bg-violet-600/20 text-slate-200 hover:text-white hover:border-violet-500/30"
                               )}
                             >
-                              <span className="flex items-center gap-3 relative z-10">
-                                <Users size={16} className={cn(
-                                  "transition-all duration-300", 
-                                  role === 'Employee' ? "text-cyan-300 drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]" : "text-cyan-400/60 group-hover:text-cyan-400"
-                                )} />
-                                <span className="tracking-wide">
-                                  {t('employeeRole').replace(/^👨‍💼\s*/, '')}
-                                </span>
+                              <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-violet-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                              <span className="flex items-center gap-3.5 relative z-10">
+                                <div className="flex items-center gap-1.5 shrink-0 bg-black/45 border border-white/10 p-1.5 rounded-lg group-hover:border-violet-500/40 transition-colors">
+                                  <Users size={16} className={cn(
+                                    "transition-all duration-300", 
+                                    role === 'Employee' ? "text-cyan-300 drop-shadow-[0_0_10px_rgba(34,211,238,0.85)]" : "text-cyan-400/70 group-hover:text-cyan-400 group-hover:drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]"
+                                  )} />
+                                  <Fingerprint size={14} className={cn(
+                                    "transition-all duration-300", 
+                                    role === 'Employee' ? "text-violet-300 drop-shadow-[0_0_8px_rgba(139,92,246,0.85)]" : "text-violet-400/60 group-hover:text-violet-400"
+                                  )} />
+                                </div>
+                                <span className="tracking-widest uppercase font-bold text-white">Employee / Karyawan</span>
                               </span>
 
-                              <div className="flex items-center gap-2 relative z-10 font-mono text-[9px] text-slate-500 group-hover:text-violet-300 transition-colors">
+                              <div className="flex items-center gap-2 relative z-10 font-mono text-[9px] text-slate-400 group-hover:text-violet-300 transition-colors">
                                 {role === 'Employee' && (
-                                  <span className="font-sans font-black uppercase text-cyan-300 tracking-wider bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-400/40">
+                                  <span className="font-sans font-black uppercase text-cyan-300 tracking-wider bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-400/50 shadow-[0_0_10px_rgba(34,211,238,0.45)]">
                                     {language === 'id' ? 'Aktif' : 'Active'}
                                   </span>
                                 )}
-                                <span>ROLE_02</span>
+                                <span className="opacity-60 font-black">SYS_STAFF</span>
                               </div>
-                              <div className="absolute inset-0 bg-gradient-to-r from-violet-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-violet-500/0 via-violet-400/40 to-violet-400/0 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </button>
                           </motion.div>
                         </>
@@ -598,8 +741,160 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
               </motion.button>
             </div>
 
-            {/* Sandbox Local Access Override UI */}
-            {(localModePrompt || error) && (
+            {/* FUTURISTIC NEON NETWORK DIAGNOSTICS & TROUBLESHOOTING PANEL */}
+            {isNetworkError && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-4 p-5 border border-red-500/30 dark:border-violet-500/35 bg-red-500/5 dark:bg-[#10072b]/80 backdrop-blur-3xl rounded-[24px] space-y-4 shadow-[0_0_25px_rgba(139,92,246,0.25)] relative overflow-hidden text-left"
+              >
+                {/* Scanner decorative laser lines */}
+                <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-violet-400 to-transparent animate-[pulse_2s_infinite]" />
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(139,92,246,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(139,92,246,0.015)_1px,transparent_1px)] bg-[size:12px_12px] opacity-40 pointer-events-none" />
+
+                <div className="flex items-center gap-2 border-b border-white/5 pb-2.5">
+                  <div className="p-1.5 bg-red-500/10 dark:bg-violet-500/15 rounded-lg border border-red-500/20 dark:border-violet-500/20">
+                    <Settings className="text-red-400 dark:text-violet-400 animate-[spin_5s_linear_infinite]" size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-100 font-sans">
+                      {language === 'id' ? 'Ledger Port Diagnostik' : 'Ledger Port Diagnostics'}
+                    </h4>
+                    <p className="text-[9px] font-mono text-cyan-400/80 tracking-widest uppercase">
+                      ERR_CONN_BLOCKED_OR_UNAUTHORIZED
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-xs text-slate-300">
+                  {/* PING TEST BLOCK */}
+                  <div className="p-3 bg-black/40 border border-white/5 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Globe size={14} className="text-cyan-400" />
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-slate-200">
+                          {language === 'id' ? 'Uji Koneksi Google' : 'Google Auth Endpoint'}
+                        </p>
+                        <p className="text-[8px] font-mono text-slate-400">identitytoolkit.googleapis.com</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isPinging}
+                      onClick={checkNetworkHealth}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg font-mono text-[9px] font-bold tracking-wider uppercase transition-colors flex items-center gap-1.5",
+                        isPinging 
+                          ? "bg-violet-950/45 text-violet-400 border border-violet-500/20" 
+                          : "bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-400 border border-cyan-400/30 cursor-pointer"
+                      )}
+                    >
+                      {isPinging ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                      {isPinging ? (language === 'id' ? 'PING...' : 'PINGING...') : (language === 'id' ? 'TES PING' : 'TEST PING')}
+                    </button>
+                  </div>
+
+                  {/* PING RESULT POP */}
+                  {pingResult && (
+                    <motion.div
+                      initial={{ scale: 0.98, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className={cn(
+                        "p-2.5 rounded-lg border text-[10px] font-mono flex items-center gap-2 shadow-inner",
+                        pingResult.status === 'healthy'
+                          ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-400"
+                          : "bg-amber-950/30 border-amber-500/30 text-amber-400"
+                      )}
+                    >
+                      <Wifi size={12} className={pingResult.status === 'healthy' ? "animate-pulse" : ""} />
+                      {pingResult.status === 'healthy' ? (
+                        <span>
+                          <strong>{language === 'id' ? 'TERKONEKSI' : 'CONNECTED'}:</strong> Latency {pingResult.latency}ms. Connection to Google is fine. Error may be authorization restrictions or email setup.
+                        </span>
+                      ) : (
+                        <span>
+                          <strong>{language === 'id' ? 'TERBLOKIR' : 'BLOCKED'}:</strong> Endpoint unreachable (No internet or browser CSP prevents iframe third-party auth).
+                        </span>
+                      )}
+                    </motion.div>
+                  )}
+
+                  {/* STEP BY STEP TROUBLESHOOTING */}
+                  <div className="space-y-3 mt-1 text-[11px] font-sans">
+                    {/* STEP 1 */}
+                    <div className="flex gap-2.5 items-start">
+                      <div className="w-5 h-5 rounded-full bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-[10px] font-black text-violet-400 shrink-0 font-mono">1</div>
+                      <div>
+                        <p className="font-bold text-slate-100">{language === 'id' ? 'Aktifkan Email/Password Auth' : 'Enable Email/Password Sign-In'}</p>
+                        <p className="text-slate-400 text-[10px] mt-0.5 leading-relaxed">
+                          {language === 'id' 
+                            ? 'Buka Firebase Console > Authentication > Metode Log-In, lalu aktifkan mode "Email/Password".'
+                            : 'Open Firebase Console > Authentication > Sign-in method, and ensure the "Email/Password" provider is turned ON.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* STEP 2 */}
+                    <div className="flex gap-2.5 items-start">
+                      <div className="w-5 h-5 rounded-full bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-[10px] font-black text-violet-400 shrink-0 font-mono">2</div>
+                      <div className="space-y-1.5 w-full">
+                        <p className="font-bold text-slate-100">{language === 'id' ? 'Otorisasi Domain Website' : 'Authorize App Domain'}</p>
+                        <p className="text-slate-400 text-[10px] leading-relaxed">
+                          {language === 'id'
+                            ? 'Pastikan domain ini masuk dalam whitelist Firebase Console > Authentication > Settings > Authorized domains.'
+                            : 'Add this domain to high-trust list under Firebase Console > Authentication > Settings > Authorized domains.'}
+                        </p>
+                        <div className="flex items-center gap-1.5 max-w-full overflow-hidden">
+                          <code className="px-2 py-1 bg-black/60 border border-white/5 rounded text-[9px] font-mono text-cyan-300 truncate select-all block max-w-[200px]">
+                            {typeof window !== 'undefined' ? window.location.host : 'localhost:3000'}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={handleCopyDomain}
+                            className="p-1 px-2.5 bg-violet-500/15 hover:bg-violet-500/30 text-violet-200 border border-violet-500/20 rounded flex items-center gap-1 text-[9px] font-bold tracking-wider uppercase transition-colors shrink-0 cursor-pointer"
+                          >
+                            {domainCopied ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                            {domainCopied ? (language === 'id' ? 'SALIN!' : 'COPIED!') : (language === 'id' ? 'SALIN' : 'COPY')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* STEP 3 */}
+                    <div className="flex gap-2.5 items-start">
+                      <div className="w-5 h-5 rounded-full bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-[10px] font-black text-violet-400 shrink-0 font-mono">3</div>
+                      <div>
+                        <p className="font-bold text-slate-100">{language === 'id' ? 'Batasan Iframe & Cookie' : 'Iframe Third-Party Restrictions'}</p>
+                        <p className="text-slate-400 text-[10px] mt-0.5 leading-relaxed">
+                          {language === 'id'
+                            ? 'Jika dijalankan di dalam iframe AI Studio, browser dapat memblokir cookie otorisasi pihak ketiga. Gunakan pintasan sandbox offline di bawah jika kendala berlanjut.'
+                            : 'Browsers block third-party OAuth requests inside nested iframe environments. If blocked, activate client-side Offline Sandbox mode below.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-white/5 space-y-2">
+                  <p className="text-[9px] text-cyan-200/60 font-medium text-center italic">
+                    {language === 'id' 
+                      ? 'Atau bypass pembatasan koneksi lokal / jaringan:' 
+                      : 'Or completely bypass the secure ledger link restrictions:'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOfflineModeLogin}
+                    className="w-full py-2.5 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-600 hover:brightness-110 active:scale-[0.99] text-white font-extrabold text-[10px] rounded-xl tracking-widest uppercase transition-all flex items-center justify-center gap-1.5 shadow-[0_4px_15px_rgba(34,211,238,0.25)] cursor-pointer"
+                  >
+                    🚀 {language === 'id' ? 'AKTIFKAN SANDBOX OFFLINE BYPASS' : 'ACTIVATE OFFLINE SANDBOX BYPASS'}
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Standard Sandbox Bypass (only shown if not in explicit network failure error state) */}
+            {!isNetworkError && (localModePrompt || error) && (
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}

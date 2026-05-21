@@ -123,3 +123,118 @@ export function playSalaryRewardSound() {
     console.warn(e);
   }
 }
+
+// 5. Short cybernetic UI click
+export function playClickSound() {
+  try {
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1400, now);
+    osc.frequency.exponentialRampToValueAtTime(600, now + 0.08);
+
+    gain.gain.setValueAtTime(0.04, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.08);
+  } catch (e) {
+    // Silent
+  }
+}
+
+// 6. Holographic notification chime
+export function playNotificationSound() {
+  try {
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+    
+    // High-tech triple ping
+    [880, 1318.51, 1760].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const t = now + (i * 0.06);
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.05, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.15);
+    });
+  } catch (e) {
+    // Silent
+  }
+}
+
+// 7. Ambient Cyber Lounge background synthesizer loop
+let ambientOsc1: OscillatorNode | null = null;
+let ambientOsc2: OscillatorNode | null = null;
+let ambientGain: GainNode | null = null;
+
+export function startFuturisticAmbience() {
+  try {
+    const ctx = getAudioContext();
+    if (ambientGain) return; // Already running
+
+    const now = ctx.currentTime;
+    ambientGain = ctx.createGain();
+    ambientGain.gain.setValueAtTime(0, now);
+    ambientGain.gain.linearRampToValueAtTime(0.03, now + 2.0); // Soft fade-in
+
+    // Drone oscillator 1 (deep pad fundamental)
+    ambientOsc1 = ctx.createOscillator();
+    ambientOsc1.type = 'sine';
+    ambientOsc1.frequency.setValueAtTime(110, now); // A2 fundamental
+    
+    // LFO to gentle wave pitch modulation
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.frequency.setValueAtTime(0.2, now); // very slow warp
+    lfoGain.gain.setValueAtTime(1.5, now);
+    lfo.connect(lfoGain);
+    lfoGain.connect(ambientOsc1.frequency);
+    lfo.start(now);
+
+    // Drone oscillator 2 (soft fifth)
+    ambientOsc2 = ctx.createOscillator();
+    ambientOsc2.type = 'triangle';
+    ambientOsc2.frequency.setValueAtTime(165, now); // E3 fifth
+
+    ambientOsc1.connect(ambientGain);
+    ambientOsc2.connect(ambientGain);
+    ambientGain.connect(ctx.destination);
+
+    ambientOsc1.start(now);
+    ambientOsc2.start(now);
+  } catch (e) {
+    console.warn("Ambient music init require physical interaction gesture.", e);
+  }
+}
+
+export function stopFuturisticAmbience() {
+  try {
+    if (ambientGain) {
+      ambientGain.gain.linearRampToValueAtTime(0, getAudioContext().currentTime + 0.5);
+      setTimeout(() => {
+        try {
+          ambientOsc1?.stop();
+          ambientOsc2?.stop();
+          ambientOsc1 = null;
+          ambientOsc2 = null;
+          ambientGain = null;
+        } catch (e) {}
+      }, 600);
+    }
+  } catch (e) {}
+}

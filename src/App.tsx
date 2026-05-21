@@ -12,7 +12,85 @@ import 開啓動畫 from './components/OpeningAnimation';
 import OnboardingPopup from './components/OnboardingPopup';
 import Auth from './components/Auth';
 import { Loader2 } from 'lucide-react';
-import { ThemeLanguageProvider } from './context/ThemeLanguageContext';
+import { ThemeLanguageProvider, useThemeLanguage } from './context/ThemeLanguageContext';
+
+function ThemeAwareApp({
+  currentView,
+  setCurrentView,
+  hasBusiness,
+  setHasBusiness,
+}: {
+  currentView: string;
+  setCurrentView: (view: any) => void;
+  hasBusiness: boolean;
+  setHasBusiness: (val: boolean) => void;
+}) {
+  const { storeTheme } = useThemeLanguage();
+
+  const getThemeBGClass = () => {
+    switch (storeTheme) {
+      case 'clean_white':
+        return 'bg-slate-50 text-slate-800 font-sans';
+      case 'gold_luxury':
+        return 'bg-neutral-980 text-amber-100 font-sans';
+      case 'blue_fintech':
+        return 'bg-[#020917] text-sky-100 font-sans';
+      case 'purple_hologram':
+        return 'bg-[#080211] text-fuchsia-100 font-sans';
+      case 'cyber_neon':
+      default:
+        return 'bg-[#050208] text-white font-sans';
+    }
+  };
+
+  return (
+    <div className={`min-h-screen ${getThemeBGClass()} relative overflow-hidden transition-all duration-700`}>
+      {/* Ambient Mesh Gradients based on theme */}
+      {storeTheme === 'cyber_neon' && (
+        <>
+          <div className="absolute top-[-100px] left-[-100px] w-[500px] h-[500px] bg-[#7c3aed] rounded-full blur-[120px] opacity-20"></div>
+          <div className="absolute bottom-[-50px] right-[-50px] w-[400px] h-[400px] bg-[#db2777] rounded-full blur-[100px] opacity-20"></div>
+        </>
+      )}
+      {storeTheme === 'purple_hologram' && (
+        <>
+          <div className="absolute top-[-100px] left-[-100px] w-[500px] h-[500px] bg-[#d946ef] rounded-full blur-[130px] opacity-25"></div>
+          <div className="absolute bottom-[-50px] right-[-50px] w-[400px] h-[400px] bg-[#8b5cf6] rounded-full blur-[110px] opacity-20"></div>
+        </>
+      )}
+      {storeTheme === 'blue_fintech' && (
+        <>
+          <div className="absolute top-[-100px] left-[-100px] w-[500px] h-[500px] bg-[#0ea5e9] rounded-full blur-[130px] opacity-20"></div>
+          <div className="absolute bottom-[-50px] right-[-50px] w-[400px] h-[400px] bg-[#2563eb] rounded-full blur-[110px] opacity-20"></div>
+        </>
+      )}
+      {storeTheme === 'gold_luxury' && (
+        <>
+          <div className="absolute top-[-100px] left-[-100px] w-[500px] h-[500px] bg-[#eab308] rounded-full blur-[140px] opacity-10"></div>
+          <div className="absolute bottom-[-50px] right-[-50px] w-[400px] h-[400px] bg-[#b45309] rounded-full blur-[120px] opacity-10"></div>
+        </>
+      )}
+      {storeTheme === 'clean_white' && (
+        <>
+          <div className="absolute top-[-100px] left-[-100px] w-[500px] h-[500px] bg-[#cbd5e1] rounded-full blur-[130px] opacity-35"></div>
+          <div className="absolute bottom-[-50px] right-[-50px] w-[400px] h-[400px] bg-[#e2e8f0] rounded-full blur-[110px] opacity-30"></div>
+        </>
+      )}
+      
+      <div className="relative z-10 h-full">
+        {currentView === 'splash' && <開啓動畫 onComplete={() => setCurrentView('landing')} />}
+        {currentView === 'landing' && <LandingPage onNavigate={setCurrentView} />}
+        {currentView === 'auth' && <Auth onNavigate={setCurrentView} />}
+        {(currentView === 'dashboard' || currentView === 'products' || currentView === 'attendance' || currentView === 'kasir' || currentView === 'wallet' || currentView === 'profile') && (
+           <>
+             {!hasBusiness && <OnboardingPopup onComplete={() => setHasBusiness(true)} />}
+             <DashboardPage currentView={currentView} onNavigate={setCurrentView} />
+           </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'splash' | 'landing' | 'auth' | 'dashboard' | 'products' | 'attendance' | 'kasir' | 'wallet' | 'profile'>('splash');
@@ -97,23 +175,12 @@ export default function App() {
 
   return (
     <ThemeLanguageProvider>
-      <div className="min-h-screen bg-white dark:bg-[#050208] text-black dark:text-white font-sans relative overflow-hidden transition-colors duration-500">
-        {/* Ambient Mesh Gradients */}
-        <div className="absolute top-[-100px] left-[-100px] w-[500px] h-[500px] bg-violet-600 dark:bg-[#2D1B4E] rounded-full blur-[120px] opacity-20 dark:opacity-40"></div>
-        <div className="absolute bottom-[-50px] right-[-50px] w-[400px] h-[400px] bg-[#7C3AED] rounded-full blur-[100px] opacity-30"></div>
-        
-        <div className="relative z-10">
-          {currentView === 'splash' && <開啓動畫 onComplete={() => setCurrentView('landing')} />}
-          {currentView === 'landing' && <LandingPage onNavigate={setCurrentView} />}
-          {currentView === 'auth' && <Auth onNavigate={setCurrentView} />}
-          {(currentView === 'dashboard' || currentView === 'products' || currentView === 'attendance' || currentView === 'kasir' || currentView === 'wallet' || currentView === 'profile') && (
-             <>
-               {!hasBusiness && <OnboardingPopup onComplete={() => setHasBusiness(true)} />}
-               <DashboardPage currentView={currentView} onNavigate={setCurrentView} />
-             </>
-          )}
-        </div>
-      </div>
+      <ThemeAwareApp
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        hasBusiness={hasBusiness}
+        setHasBusiness={setHasBusiness}
+      />
     </ThemeLanguageProvider>
   );
 }
