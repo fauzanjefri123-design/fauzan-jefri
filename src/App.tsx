@@ -12,6 +12,7 @@ import 開啓動畫 from './components/OpeningAnimation';
 import OnboardingPopup from './components/OnboardingPopup';
 import Auth from './components/Auth';
 import { Loader2 } from 'lucide-react';
+import { getPartitionedKey } from './lib/utils';
 import { ThemeLanguageProvider, useThemeLanguage } from './context/ThemeLanguageContext';
 
 function ThemeAwareApp({
@@ -159,7 +160,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const businessData = localStorage.getItem('inmarket_business');
+    const businessKey = getPartitionedKey('inmarket_business', true);
+    const businessData = localStorage.getItem(businessKey);
     if (businessData) {
       setHasBusiness(true);
     }

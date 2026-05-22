@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getPartitionedKey } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import { translations } from '../lib/translations';
@@ -56,7 +57,8 @@ export default function OnboardingPopup({ onComplete }: { onComplete: () => void
     e.preventDefault();
     playSuccessSound();
     // Cache onboarding details
-    localStorage.setItem('inmarket_business', JSON.stringify(formData));
+    const businessKey = getPartitionedKey('inmarket_business', true);
+    localStorage.setItem(businessKey, JSON.stringify(formData));
     setStep(2);
   };
 

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getPartitionedKey } from '../lib/utils';
+import { logActivity } from '../lib/activities';
 import { Camera, Save, LogOut, Code, User, Key, Building2, MapPin, Phone, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { updateProfile, updatePassword, signOut } from 'firebase/auth';
@@ -38,7 +40,8 @@ export default function Profile({ onNavigate }: { onNavigate: (view: string) => 
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
-        const businessData = localStorage.getItem('inmarket_business');
+        const businessKey = getPartitionedKey('inmarket_business', true);
+        const businessData = localStorage.getItem(businessKey);
         if (businessData) {
             try {
                 const parsed = JSON.parse(businessData);
@@ -67,10 +70,41 @@ export default function Profile({ onNavigate }: { onNavigate: (view: string) => 
                 throw new Error("Password minimal 6 karakter.");
             }
 
-            const updatedBusinessData = { name: businessName, phone, country, description };
-            localStorage.setItem('inmarket_business', JSON.stringify(updatedBusinessData));
+            const updatedBusinessData = { name: businessName, phone, country, description, ownerName: displayName };
+            const businessKey = getPartitionedKey('inmarket_business', true);
+            localStorage.setItem(businessKey, JSON.stringify(updatedBusinessData));
 
-            setStatusMessage({ type: 'success', text: 'Profil berhasil diperbarui!' });
+            // Sync user changes to offline logged-in session state
+            const offlineUserStr = localStorage.getItem('offline_logged_in_user');
+            if (offlineUserStr) {
+                try {
+                    const parsed = JSON.parse(offlineUserStr);
+                    parsed.displayName = displayName;
+                    localStorage.setItem('offline_logged_in_user', JSON.stringify(parsed));
+                } catch (err) {}
+            } else {
+                localStorage.setItem('offline_logged_in_user', JSON.stringify({
+                    uid: user?.uid || 'offline_gen',
+                    email: user?.email || 'user@inmarket.id',
+                    displayName: displayName,
+                    role: 'Owner'
+                }));
+            }
+
+            // Sync cached user passwords
+            if (email !== 'N/A') {
+                const cachedUserStr = localStorage.getItem('local_user_' + email);
+                if (cachedUserStr) {
+                    try {
+                        const parsed = JSON.parse(cachedUserStr);
+                        parsed.username = displayName;
+                        if (password.length >= 6) parsed.password = password;
+                        localStorage.setItem('local_user_' + email, JSON.stringify(parsed));
+                    } catch (err) {}
+                }
+            }
+
+            setStatusMessage({ type: 'success', text: 'Profil & nama dashboard berhasil diperbarui!' });
             setTimeout(() => setStatusMessage(null), 4000);
         } catch (error: any) {
             if (error.code === 'auth/requires-recent-login') {
@@ -85,6 +119,8 @@ export default function Profile({ onNavigate }: { onNavigate: (view: string) => 
 
     const handleLogout = () => {
         signOut(auth).then(() => {
+            localStorage.removeItem('offline_logged_in_user');
+            localStorage.removeItem('inmarket_employee_profile');
             onNavigate('auth');
         });
     };
@@ -96,6 +132,7 @@ export default function Profile({ onNavigate }: { onNavigate: (view: string) => 
             reader.onloadend = () => {
                 setPhotoURL(reader.result as string);
                 setIsGalleryOpen(false);
+                logActivity('Mengubah/mengunggah berkas foto profil pengguna');
             };
             reader.readAsDataURL(file);
         }

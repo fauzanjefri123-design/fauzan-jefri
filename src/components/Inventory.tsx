@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import { translations } from '../lib/translations';
+import { getPartitionedKey } from '../lib/utils';
 import SalesHistory from './SalesHistory';
 import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'motion/react';
@@ -115,6 +116,10 @@ export default function Inventory() {
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [quantity, setQuantity] = useState('');
   
+  // Stock audit logs modal states
+  const [selectedProductForLog, setSelectedProductForLog] = useState<any | null>(null);
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  
   // Image Viewer Modal Carousel
   const [viewerImages, setViewerImages] = useState<string[]>([]);
   const [viewerIndex, setViewerIndex] = useState(0);
@@ -151,14 +156,15 @@ export default function Inventory() {
       }
       
       // Load and merge local storage products for robust sandbox resilience
-      const localProductsStr = localStorage.getItem('inmarket_products');
+      const productsKey = getPartitionedKey('inmarket_products', true);
+      const localProductsStr = localStorage.getItem(productsKey);
       let localProducts: any[] = [];
       if (localProductsStr) {
         try {
           localProducts = JSON.parse(localProductsStr);
         } catch (e) {
           console.error("Failed to parse local products, resetting");
-          localStorage.setItem('inmarket_products', '[]');
+          localStorage.setItem(productsKey, '[]');
         }
       }
 
@@ -179,14 +185,15 @@ export default function Inventory() {
           desc: p.description,
           photoUrl: p.images[0]
         }));
-        localStorage.setItem('inmarket_products', JSON.stringify(generatedPresets));
+        localStorage.setItem(productsKey, JSON.stringify(generatedPresets));
         merged = generatedPresets;
       }
 
       setProducts(merged);
     } catch (firebaseErr) {
       console.warn("Firebase fetching failed, fallback to local storage products:", firebaseErr);
-      const localProductsStr = localStorage.getItem('inmarket_products') || '[]';
+      const productsKey = getPartitionedKey('inmarket_products', true);
+      const localProductsStr = localStorage.getItem(productsKey) || '[]';
       try {
         let merged = JSON.parse(localProductsStr);
         if (merged.length === 0) {
@@ -197,7 +204,7 @@ export default function Inventory() {
             desc: p.description,
             photoUrl: p.images[0]
           }));
-          localStorage.setItem('inmarket_products', JSON.stringify(generatedPresets));
+          localStorage.setItem(productsKey, JSON.stringify(generatedPresets));
           merged = generatedPresets;
         }
         setProducts(merged);
@@ -360,7 +367,8 @@ export default function Inventory() {
     }
 
     // Save locally 
-    const currentLocalsStr = localStorage.getItem('inmarket_products') || '[]';
+    const productsKey = getPartitionedKey('inmarket_products', true);
+    const currentLocalsStr = localStorage.getItem(productsKey) || '[]';
     let currentLocals: any[] = [];
     try {
       currentLocals = JSON.parse(currentLocalsStr);
@@ -381,7 +389,7 @@ export default function Inventory() {
         ...payload
       });
     }
-    localStorage.setItem('inmarket_products', JSON.stringify(currentLocals));
+    localStorage.setItem(productsKey, JSON.stringify(currentLocals));
 
     // Reset forms
     setName(''); setPrice(''); setStock(''); setCategory('Makanan'); setDiscount('0');
@@ -435,11 +443,12 @@ export default function Inventory() {
     }
 
     // Delete locally
-    const currentLocalsStr = localStorage.getItem('inmarket_products') || '[]';
+    const productsKey = getPartitionedKey('inmarket_products', true);
+    const currentLocalsStr = localStorage.getItem(productsKey) || '[]';
     try {
       const parsed = JSON.parse(currentLocalsStr);
       const filtered = parsed.filter((lp: any) => lp.id !== p.id);
-      localStorage.setItem('inmarket_products', JSON.stringify(filtered));
+      localStorage.setItem(productsKey, JSON.stringify(filtered));
     } catch {}
 
     fetchProducts();
@@ -456,7 +465,8 @@ export default function Inventory() {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
-        const currentLocalsStr = localStorage.getItem('inmarket_products') || '[]';
+        const productsKey = getPartitionedKey('inmarket_products', true);
+        const currentLocalsStr = localStorage.getItem(productsKey) || '[]';
         let currentLocals: any[] = [];
         try { currentLocals = JSON.parse(currentLocalsStr); } catch {}
 
@@ -494,7 +504,7 @@ export default function Inventory() {
           } catch {}
         }
         
-        localStorage.setItem('inmarket_products', JSON.stringify(currentLocals));
+        localStorage.setItem(productsKey, JSON.stringify(currentLocals));
         fetchProducts();
         playSuccessSound();
         showNotification('success', language === 'id' ? 'Bulk CSV Terimpor Sukses!' : 'Bulk CSV Imported Successfully!');
@@ -531,15 +541,36 @@ export default function Inventory() {
     } catch {}
 
     // Update in localStorage
-    const currentLocalsStr = localStorage.getItem('inmarket_products') || '[]';
+    const productsKey = getPartitionedKey('inmarket_products', true);
+    const currentLocalsStr = localStorage.getItem(productsKey) || '[]';
     try {
       const parsed = JSON.parse(currentLocalsStr);
       const updated = parsed.map((lp: any) => lp.id === selectedProduct.id 
         ? { ...lp, stock: newStock, salesCount: newSalesCount } 
         : lp
       );
-      localStorage.setItem('inmarket_products', JSON.stringify(updated));
+      localStorage.setItem(productsKey, JSON.stringify(updated));
     } catch {}
+
+    // Record manual adjustment to stock log
+    try {
+      const stockLogsKey = getPartitionedKey('inmarket_stock_logs', true);
+      const existingLogsStr = localStorage.getItem(stockLogsKey) || '[]';
+      const existingLogs = JSON.parse(existingLogsStr);
+      const newLog = {
+        id: 'log_' + Math.floor(Math.random() * 899999 + 100000),
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
+        type: isSell ? 'SALE' : 'RESTOCK',
+        qty: qty,
+        prevStock: selectedProduct.stock,
+        newStock: newStock,
+        timestamp: new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0') + ' ' + String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0')
+      };
+      localStorage.setItem(stockLogsKey, JSON.stringify([newLog, ...existingLogs]));
+    } catch (e) {
+      console.warn("Stock log warning", e);
+    }
 
     // Insert sales metrics
     if (isSell) {
@@ -1527,12 +1558,23 @@ export default function Inventory() {
                       </div>
 
                       {/* TRASH & EDIT ACCESS SYSTEM */}
-                      <div className="flex gap-2 pt-1">
+                      <div className="flex gap-1.5 pt-1">
                         <button 
                           onClick={() => fillEditProduct(p)}
-                          className="flex-1 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-300 text-[10px] font-bold tracking-wider uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                          className="flex-1 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-300 text-[10px] font-bold tracking-wider uppercase flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <Edit2 size={10}/> EDIT
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setSelectedProductForLog(p);
+                            setIsLogModalOpen(true);
+                            playClickSound();
+                          }}
+                          className="px-2.5 py-1.5 bg-violet-950/20 border border-violet-900/45 hover:border-violet-500 hover:bg-violet-900/40 rounded-lg text-violet-400 font-bold text-[10px] uppercase flex items-center justify-center gap-1 cursor-pointer"
+                          title="Lihat Histori Stok"
+                        >
+                          <History size={12}/> LOG
                         </button>
                         <button 
                           onClick={() => {
@@ -1705,6 +1747,112 @@ export default function Inventory() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* STOCK ADJUSTMENTLOGS HISTORIC MODAL */}
+      {isLogModalOpen && selectedProductForLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#0b081c] border border-violet-500/35 p-6 md:p-8 rounded-[32px] w-full max-w-lg shadow-[0_0_50px_rgba(139,92,246,0.3)] relative text-slate-100"
+          >
+            {/* Glowing accent border line */}
+            <div className="absolute top-0 inset-x-16 h-[2px] bg-gradient-to-r from-transparent via-violet-400 to-transparent animate-pulse" />
+            
+            <div className="flex justify-between items-start mb-5 pb-3 border-b border-white/5">
+              <div>
+                <span className="text-[10px] font-mono font-black text-violet-400 uppercase tracking-widest block leading-none">SEJARAH MUTASI STOK / AUDIT LOG</span>
+                <h3 className="text-base font-black text-slate-200 mt-1 uppercase tracking-wide">
+                  {selectedProductForLog.name}
+                </h3>
+              </div>
+              <button 
+                onClick={() => { playClickSound(); setIsLogModalOpen(false); setSelectedProductForLog(null); }}
+                className="p-1.5 hover:bg-white/5 rounded-full text-slate-400 hover:text-white transition duration-200 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Product Info Block Summary */}
+              <div className="grid grid-cols-3 gap-2 p-3 bg-white/5 rounded-2xl text-center border border-white/5">
+                <div>
+                  <span className="text-[9px] font-mono opacity-50 block tracking-widest">KATEGORI</span>
+                  <span className="text-xs font-black text-cyan-400 block leading-tight">{selectedProductForLog.category || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-mono opacity-50 block tracking-widest">STOK SAAT INI</span>
+                  <span className="text-xs font-black text-emerald-400 block leading-tight">{selectedProductForLog.stock} Unit</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-mono opacity-50 block tracking-widest">SERIAL BARCODE</span>
+                  <span className="text-xs font-black text-slate-300 font-mono block leading-tight">{selectedProductForLog.barcode || 'N/A'}</span>
+                </div>
+              </div>
+
+              {/* Recent logs items */}
+              <div>
+                <h4 className="text-[10px] font-mono font-black tracking-widest text-[#5FD3F4] mb-2.5 uppercase">GARIS WAKTU HISTORI PERUBAHAN</h4>
+                
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                  {(() => {
+                    const stockLogsKey = getPartitionedKey('inmarket_stock_logs', true);
+                    const allLogs = JSON.parse(localStorage.getItem(stockLogsKey) || '[]');
+                    const filteredLogs = allLogs.filter((log: any) => log.productId === selectedProductForLog.id);
+                    
+                    if (filteredLogs.length === 0) {
+                      return (
+                        <div className="py-12 text-center text-xs opacity-40 italic font-mono border border-dashed border-white/5 rounded-2xl">
+                          Belum ada catatan mutasi stok untuk produk ini.
+                          <p className="text-[10px] mt-1 pr-1 leading-normal">Lakukan Transaksi Kasir atau penyesuaian stok di atas untuk memulai perekaman.</p>
+                        </div>
+                      );
+                    }
+
+                    return filteredLogs.map((log: any) => {
+                      const isSale = log.type === 'SALE';
+                      return (
+                        <div 
+                          key={log.id} 
+                          className="p-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/[7%] transition duration-150 flex items-center justify-between text-xs"
+                        >
+                          <div className="space-y-0.5 text-left">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-1.5 py-0.5 text-[8px] font-mono font-black tracking-wider rounded uppercase leading-none ${
+                                isSale 
+                                  ? 'bg-rose-500/15 text-rose-400' 
+                                  : 'bg-emerald-500/15 text-emerald-400'
+                              }`}>
+                                {isSale ? 'KASIR / PENJUALAN' : 'RESTOCK SUPPLIER'}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-500">
+                                {log.timestamp}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 font-mono">
+                              Mutasi: {log.prevStock} → {log.newStock} Unit
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className={`font-mono font-black text-sm block ${isSale ? 'text-rose-400' : 'text-emerald-400'}`}>
+                              {isSale ? '-' : '+'}{log.qty}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+
+              <p className="text-[10px] text-slate-500 text-center leading-normal font-mono border-t border-white/5 pt-3">
+                💡 Log dicatat otomatis setiap kali persediaan dideplesi via POS Kasir, ataupun manual melalui panel admin.
+              </p>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
     </div>
   );

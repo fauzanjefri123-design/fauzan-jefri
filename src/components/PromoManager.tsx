@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getPartitionedKey } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Percent, Gift, Flame, Zap, Plus, Trash2, Clock, Sparkles, 
@@ -24,7 +25,8 @@ const DEFAULT_COUPONS: Coupon[] = [
 
 export default function PromoManager() {
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
-    const saved = localStorage.getItem('inmarket_coupons_data');
+    const key = getPartitionedKey('inmarket_coupons_data', false);
+    const saved = localStorage.getItem(key);
     return saved ? JSON.parse(saved) : DEFAULT_COUPONS;
   });
 
@@ -56,7 +58,8 @@ export default function PromoManager() {
 
   const saveCoupons = (data: Coupon[]) => {
     setCoupons(data);
-    localStorage.setItem('inmarket_coupons_data', JSON.stringify(data));
+    const key = getPartitionedKey('inmarket_coupons_data', false);
+    localStorage.setItem(key, JSON.stringify(data));
   };
 
   const handleCreateCoupon = (e: React.FormEvent) => {

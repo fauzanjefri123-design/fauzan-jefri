@@ -5,6 +5,8 @@ import {
   QrCode, Ticket, Percent, Sparkles, Trophy, Plus, ArrowUpRight
 } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../lib/sounds';
+import { cn, getPartitionedKey } from '../lib/utils';
+import QRScanner from './QRScanner';
 
 interface Customer {
   id: string;
@@ -72,12 +74,32 @@ const DEFAULT_CUSTOMERS: Customer[] = [
 
 export default function CustomersManager() {
   const [customers, setCustomers] = useState<Customer[]>(() => {
-    const saved = localStorage.getItem('inmarket_customers_data');
+    const key = getPartitionedKey('inmarket_customers_data', false);
+    const saved = localStorage.getItem(key);
     return saved ? JSON.parse(saved) : DEFAULT_CUSTOMERS;
   });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [isCrmScannerActive, setIsCrmScannerActive] = useState(false);
+
+  const handleCrmScan = (text: string) => {
+    const found = customers.find(c => 
+      c.id === text || 
+      c.phone === text || 
+      c.email.toLowerCase() === text.toLowerCase() ||
+      c.name.toLowerCase() === text.toLowerCase()
+    );
+
+    if (found) {
+      setSelectedCustomer(found);
+      setSearchQuery('');
+      setIsCrmScannerActive(false);
+      playSuccessSound();
+    } else {
+      alert(`Kartu anggota / ID "${text}" tidak terdaftar di database pelanggan.`);
+    }
+  };
   
   // New Customer Form State
   const [showAddForm, setShowAddForm] = useState(false);
@@ -101,7 +123,8 @@ export default function CustomersManager() {
   // Save to localstorage
   const saveCustomers = (data: Customer[]) => {
     setCustomers(data);
-    localStorage.setItem('inmarket_customers_data', JSON.stringify(data));
+    const key = getPartitionedKey('inmarket_customers_data', false);
+    localStorage.setItem(key, JSON.stringify(data));
   };
 
   const handleAddCustomer = (e: React.FormEvent) => {
@@ -204,16 +227,41 @@ export default function CustomersManager() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Side: Customer List Search */}
         <div className="lg:col-span-5 space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3.5 top-3.5 text-slate-400" size={16} />
-            <input 
-              type="text"
-              placeholder="Cari nama, email, atau HP..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
-            />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-3.5 text-slate-400" size={16} />
+              <input 
+                type="text"
+                placeholder="Cari nama, email, atau HP..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+              />
+            </div>
+            <button
+              onClick={() => { playClickSound(); setIsCrmScannerActive(!isCrmScannerActive); }}
+              className={cn(
+                "p-3 rounded-xl border flex items-center justify-center transition cursor-pointer shrink-0",
+                isCrmScannerActive 
+                  ? "bg-rose-500/15 border-rose-500/30 text-rose-400" 
+                  : "bg-violet-600/10 border-violet-500/20 text-violet-400 hover:bg-violet-600/20"
+              )}
+              title="Pindai Kartu Anggota"
+            >
+              <QrCode size={18} className={isCrmScannerActive ? "animate-pulse" : ""} />
+            </button>
           </div>
+
+          {/* Collapsible QR Scanner for Customers */}
+          {isCrmScannerActive && (
+            <div className="p-4 bg-violet-500/5 border border-violet-500/15 rounded-2xl">
+              <span className="text-[10px] font-mono font-bold text-violet-400 block mb-2 uppercase">PINDAI KARTU ANGGOTA / MEMBER QR</span>
+              <QRScanner
+                onScanSuccess={handleCrmScan}
+                placeholderText="Tempel QR member atau ketik HP..."
+              />
+            </div>
+          )}
 
           <div className="p-4 rounded-3xl bg-white dark:bg-[#0c0817]/60 border border-indigo-100/10 max-h-[500px] overflow-y-auto space-y-2 custom-scrollbar">
             {filtered.length === 0 ? (

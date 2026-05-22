@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getPartitionedKey } from '../lib/utils';
 import { motion } from 'framer-motion';
 import { 
   ShieldCheck, ShieldAlert, Monitor, Smartphone, Globe, Landmark, 
@@ -31,11 +32,13 @@ const DEFAULT_LOGS: LoginLog[] = [
 export default function SecurityCenter() {
   const [devices, setDevices] = useState(DEFAULT_DEVICES);
   const [logs, setLogs] = useState<LoginLog[]>(() => {
-    const saved = localStorage.getItem('inmarket_login_logs');
+    const key = getPartitionedKey('inmarket_login_logs', false);
+    const saved = localStorage.getItem(key);
     return saved ? JSON.parse(saved) : DEFAULT_LOGS;
   });
   const [rememberMe, setRememberMe] = useState(() => {
-    return localStorage.getItem('inmarket_remember_me') === 'yes';
+    const key = getPartitionedKey('inmarket_remember_me', false);
+    return localStorage.getItem(key) === 'yes';
   });
 
   const [testPasswordInp, setTestPasswordInp] = useState('');
@@ -45,7 +48,8 @@ export default function SecurityCenter() {
   const toggleRememberMe = () => {
     const next = !rememberMe;
     setRememberMe(next);
-    localStorage.setItem('inmarket_remember_me', next ? 'yes' : 'no');
+    const key = getPartitionedKey('inmarket_remember_me', false);
+    localStorage.setItem(key, next ? 'yes' : 'no');
     playClickSound();
   };
 

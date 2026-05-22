@@ -55,7 +55,7 @@ import {
   Ticket,
   Flame
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, getPartitionedKey } from '../lib/utils';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, AreaChart, Area 
@@ -71,6 +71,7 @@ import SecurityCenter from './SecurityCenter';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import { translations } from '../lib/translations';
 import ThemeLanguageSwitcher from './ThemeLanguageSwitcher';
+import QRScanner from './QRScanner';
 import { 
   playScanSound, 
   playSuccessSound, 
@@ -81,6 +82,7 @@ import {
   startFuturisticAmbience,
   stopFuturisticAmbience
 } from '../lib/sounds';
+import { logActivity, subscribeToActivities, seedInitialUserActivities } from '../lib/activities';
 
 export default function DashboardPage({ currentView: initialView, onNavigate }: { currentView: string; onNavigate: (view: any) => void }) {
   const { language, theme } = useThemeLanguage();
@@ -116,25 +118,29 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   // Business Open/Close State
   const [isStoreOpen, setIsStoreOpen] = useState(() => {
-    return localStorage.getItem('inmarket_store_open') !== 'closed';
+    const key = getPartitionedKey('inmarket_store_open', true);
+    return localStorage.getItem(key) !== 'closed';
   });
 
   // Shop metadata details
   const [shopData, setShopData] = useState(() => {
-    const cached = localStorage.getItem('inmarket_business');
+    const key = getPartitionedKey('inmarket_business', true);
+    const cached = localStorage.getItem(key);
     return cached ? JSON.parse(cached) : { businessName: 'InMarket Lounge', ownerName: 'Admin Boss', businessType: 'Caffe' };
   });
 
   // Employee First-Time Onboarding Profile
   const [showEmployeeProfileModal, setShowEmployeeProfileModal] = useState(false);
   const [employeeProfile, setEmployeeProfile] = useState(() => {
-    const cached = localStorage.getItem('inmarket_employee_profile');
+    const key = getPartitionedKey('inmarket_employee_profile', false);
+    const cached = localStorage.getItem(key);
     return cached ? JSON.parse(cached) : { fullName: '', photoUrl: '', gender: 'Male', exp: 40 };
   });
 
   // Gaji Karyawan State
   const [isSalaryPaid, setIsSalaryPaid] = useState(() => {
-    return localStorage.getItem('inmarket_salary_paid') === 'yes';
+    const key = getPartitionedKey('inmarket_salary_paid', true);
+    return localStorage.getItem(key) === 'yes';
   });
   const [salaryAnim, setSalaryAnim] = useState(false);
 
@@ -148,7 +154,8 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   // Chat message logs
   const [chatMessages, setChatMessages] = useState<any[]>(() => {
-    const cached = localStorage.getItem('inmarket_chats');
+    const key = getPartitionedKey('inmarket_chats', false);
+    const cached = localStorage.getItem(key);
     return cached ? JSON.parse(cached) : [
       { id: 1, sender: 'System AI', text: 'Secure 2026 Lobby Chat initiated.', time: '11:00', file: null },
       { id: 2, sender: 'Boss Owner', text: 'Halo tim, mari kita penuhi target transaksi hari ini!', time: '11:01', file: null },
@@ -167,7 +174,8 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   // Product Database list
   const [products, setProducts] = useState<any[]>(() => {
-    const cached = localStorage.getItem('inmarket_products');
+    const key = getPartitionedKey('inmarket_products', true);
+    const cached = localStorage.getItem(key);
     return cached ? JSON.parse(cached) : [
       { id: 'p1', name: 'Original Premium Espresso', price: 28000, stock: 45, category: 'Minuman', supplier: 'Sumatra Roast Node', barcode: '8993213002', desc: 'Espresso murni 100% Arabika.' },
       { id: 'p2', name: 'Fresh Milk Matcha Latte', price: 32000, stock: 4, category: 'Minuman', supplier: 'Uji Farms', barcode: '8993213054', desc: 'Susu segar dengan matcha kualitas impor.' },
@@ -194,7 +202,8 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   // Sales Transactions history
   const [salesHistory, setSalesHistory] = useState<any[]>(() => {
-    const cached = localStorage.getItem('inmarket_sales');
+    const key = getPartitionedKey('inmarket_sales', true);
+    const cached = localStorage.getItem(key);
     return cached ? JSON.parse(cached) : [
       { id: 't1', total: 60000, itemQty: 2, meth: 'QRIS', date: 'Today, 10:14', dateStr: 'May 21' },
       { id: 't2', total: 28000, itemQty: 1, meth: 'Cash', date: 'Yesterday, 14:02', dateStr: 'May 20' },
@@ -210,6 +219,9 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [isMusicOn, setIsMusicOn] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
+  
+  // Selected Customer for Sale / Loyalty program
+  const [selectedCustomerForSale, setSelectedCustomerForSale] = useState<any | null>(null);
   
   const [exportModal, setExportModal] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState(0);
@@ -271,12 +283,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   const [cctvActiveCam, setCctvActiveCam] = useState("CAM_01_KASIR");
 
   // Realtime Active Activity History logs
-  const [activityHistory, setActivityHistory] = useState<any[]>([
-    { id: 'act1', user: 'Boss Fauzan', action: 'Mengubah parameter metrik Matcha Latte', time: '11:24', date: 'Hari Ini' },
-    { id: 'act2', user: 'System Sync', action: 'Auto-Backup ke InMarket Cloud selesai', time: '11:20', date: 'Hari Ini' },
-    { id: 'act3', user: 'Karyawan', action: 'Verifikasi Absensi via QR Code PLX487', time: '11:02', date: 'Hari Ini' },
-    { id: 'act4', user: 'Boss Fauzan', action: 'Inisialisasi Outlet InMarket Jakarta', time: '08:00', date: 'Hari Ini' }
-  ]);
+  const [activityHistory, setActivityHistory] = useState<any[]>([]);
 
   const [showQuickFAB, setShowQuickFAB] = useState(false);
   const [isScannerActive, setIsScannerActive] = useState(false);
@@ -345,14 +352,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   // Record action in activity logs
   const logSystemActivity = (actionText: string) => {
-    const act = {
-      id: 'act_' + Date.now(),
-      user: userRole === 'Owner' ? 'Boss Fauzan' : 'Karyawan',
-      action: actionText,
-      time: new Date().toLocaleTimeString().slice(0, 5),
-      date: 'Hari Ini'
-    };
-    setActivityHistory(prev => [act, ...prev].slice(0, 15));
+    logActivity(actionText);
   };
 
   // Run dynamic confetti for targets met
@@ -557,6 +557,20 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     };
   }, []);
 
+  // Real-time subscription to current active account's activities
+  useEffect(() => {
+    if (currentUser?.email) {
+      // Ensure activities are seeded if empty
+      seedInitialUserActivities(currentUser.email, currentUser.displayName || currentUser.username || currentUser.email.split('@')[0]);
+
+      // Subscribe to user-partitioned updates (Firestore & Local)
+      const unsubscribe = subscribeToActivities(currentUser.email, (activities) => {
+        setActivityHistory(activities);
+      });
+      return () => unsubscribe();
+    }
+  }, [currentUser?.email]);
+
   // 4. Voice wave simulator loop
   useEffect(() => {
     let interval: any;
@@ -573,12 +587,14 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   // Save states to local storage on modification
   const persistProducts = (list: any[]) => {
     setProducts(list);
-    localStorage.setItem('inmarket_products', JSON.stringify(list));
+    const key = getPartitionedKey('inmarket_products', true);
+    localStorage.setItem(key, JSON.stringify(list));
   };
 
   const persistSales = (list: any[]) => {
     setSalesHistory(list);
-    localStorage.setItem('inmarket_sales', JSON.stringify(list));
+    const key = getPartitionedKey('inmarket_sales', true);
+    localStorage.setItem(key, JSON.stringify(list));
   };
 
   // Toggle Shop Open / Closed Status
@@ -586,14 +602,16 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     playScanSound();
     const targetStatus = !isStoreOpen;
     setIsStoreOpen(targetStatus);
-    localStorage.setItem('inmarket_store_open', targetStatus ? 'open' : 'closed');
+    const key = getPartitionedKey('inmarket_store_open', true);
+    localStorage.setItem(key, targetStatus ? 'open' : 'closed');
   };
 
   // 1-Click Salary payout triggering custom reward synth Audio on employee
   const handlePaySalary = () => {
     playSalaryRewardSound();
     setIsSalaryPaid(true);
-    localStorage.setItem('inmarket_salary_paid', 'yes');
+    const key = getPartitionedKey('inmarket_salary_paid', true);
+    localStorage.setItem(key, 'yes');
     setSalaryAnim(true);
     setTimeout(() => {
       setSalaryAnim(false);
@@ -610,7 +628,8 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     for (let i = 0; i < 3; i++) codeStr += nums.charAt(Math.floor(Math.random() * nums.length));
     
     setAttendanceCode(codeStr);
-    localStorage.setItem('inmarket_attendance_code', codeStr);
+    const key = getPartitionedKey('inmarket_attendance_code', true);
+    localStorage.setItem(key, codeStr);
   };
 
   // Employee Check In
@@ -626,7 +645,8 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
         exp: employeeProfile.exp + 25
       };
       setEmployeeProfile(updated);
-      localStorage.setItem('inmarket_employee_profile', JSON.stringify(updated));
+      const key = getPartitionedKey('inmarket_employee_profile', false);
+      localStorage.setItem(key, JSON.stringify(updated));
 
       setTimeout(() => {
         setAttendanceSuccess(false);
@@ -738,18 +758,71 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     setCart(cart.filter(item => item.id !== id));
   };
 
+  const getLoyaltyDiscount = (cust: any) => {
+    if (!cust) return 0;
+    switch (cust.memberLevel) {
+      case 'Platinum': return 0.10; // 10% discount
+      case 'Gold': return 0.05; // 5% discount
+      case 'Silver': return 0.02; // 2% discount
+      case 'Bronze': default: return 0.01; // 1% discount
+    }
+  };
+
+  const handleScanResult = (text: string) => {
+    // 1. Search in products by barcode, ID, or case-insensitive name match
+    const foundProduct = products.find(p => p.barcode === text || p.id === text || p.name?.toLowerCase() === text.toLowerCase());
+    if (foundProduct) {
+      if (foundProduct.stock <= 0) {
+        triggerNotification('transaksi', `SCAN ERROR: Stok ${foundProduct.name} sedang kosong!`);
+        return;
+      }
+      addToCart(foundProduct);
+      triggerNotification('transaksi', `SCAN SUKSES: ${foundProduct.name} masuk keranjang!`);
+      logSystemActivity(`Scan Barcode: ${foundProduct.name} ditambahkan otomatis.`);
+      return;
+    }
+
+    // 2. Search in customers by ID, Phone, Email, or Name
+    const customersKey = getPartitionedKey('inmarket_customers_data', false);
+    const savedCustomersRaw = localStorage.getItem(customersKey);
+    const customerList = savedCustomersRaw ? JSON.parse(savedCustomersRaw) : [];
+    const allCustomers = customerList.length > 0 ? customerList : [
+      { id: 'c1', name: 'Ahmad Fauzi', phone: '081234567890', email: 'ahmadf@gmail.com', points: 450, totalSpent: 1250000, memberLevel: 'Platinum', shoppingHistory: [], cashbackBalance: 75000 },
+      { id: 'c2', name: 'Siti Rahma', phone: '085799887766', email: 'siti.rahma@yahoo.com', points: 120, totalSpent: 350000, memberLevel: 'Gold', shoppingHistory: [], cashbackBalance: 15000 },
+      { id: 'c3', name: 'Budi Santoso', phone: '081922334455', email: 'budi.santoso@outlook.com', points: 25, totalSpent: 85000, memberLevel: 'Bronze', shoppingHistory: [], cashbackBalance: 2000 }
+    ];
+
+    const foundCustomer = allCustomers.find((c: any) => 
+      c.id === text || 
+      c.phone === text || 
+      c.email?.toLowerCase() === text.toLowerCase() ||
+      c.name?.toLowerCase() === text.toLowerCase()
+    );
+
+    if (foundCustomer) {
+      setSelectedCustomerForSale(foundCustomer);
+      triggerNotification('toko', `MEMBER TERDETEKSI: ${foundCustomer.name} (${foundCustomer.memberLevel})`);
+      logSystemActivity(`Scan QR Member: Teridentifikasi CRM Pelanggan ${foundCustomer.name}.`);
+      playSuccessSound();
+      return;
+    }
+
+    // 3. Fallback: notifying mismatch
+    triggerNotification('toko', `Pemindaian: "${text}" tidak terdaftar di sistem.`);
+  };
+
   const executeCheckout = () => {
     if (cart.length === 0) return;
     playCashRegisterSound();
 
-    let totalVal = 0;
+    let baseTotalVal = 0;
     let qtyVal = 0;
 
     // Deduct quantity from stock
     const updatedProducts = products.map(p => {
       const itemCart = cart.find(item => item.id === p.id);
       if (itemCart) {
-        totalVal += itemCart.price * itemCart.qty;
+        baseTotalVal += itemCart.price * itemCart.qty;
         qtyVal += itemCart.qty;
         return { ...p, stock: Math.max(0, p.stock - itemCart.qty) };
       }
@@ -758,9 +831,61 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
     persistProducts(updatedProducts);
 
+    // Apply loyalty membership discount
+    const discountPct = getLoyaltyDiscount(selectedCustomerForSale);
+    const discountAmount = Math.round(baseTotalVal * discountPct);
+    const finalTotalVal = baseTotalVal - discountAmount;
+
+    // Update loyalty points and purchase history
+    if (selectedCustomerForSale) {
+      const pointsEarned = Math.floor(finalTotalVal / 10000);
+      const custKey = getPartitionedKey('inmarket_customers_data', false);
+      const savedCustomersRaw = localStorage.getItem(custKey);
+      const customerList = savedCustomersRaw ? JSON.parse(savedCustomersRaw) : [];
+      const allCustomers = customerList.length > 0 ? customerList : [
+        { id: 'c1', name: 'Ahmad Fauzi', phone: '081234567890', email: 'ahmadf@gmail.com', points: 450, totalSpent: 1250000, memberLevel: 'Platinum', shoppingHistory: [], cashbackBalance: 75000 },
+        { id: 'c2', name: 'Siti Rahma', phone: '085799887766', email: 'siti.rahma@yahoo.com', points: 120, totalSpent: 350000, memberLevel: 'Gold', shoppingHistory: [], cashbackBalance: 15000 },
+        { id: 'c3', name: 'Budi Santoso', phone: '081922334455', email: 'budi.santoso@outlook.com', points: 25, totalSpent: 85000, memberLevel: 'Bronze', shoppingHistory: [], cashbackBalance: 2000 }
+      ];
+
+      const updatedCustomers = allCustomers.map((cust: any) => {
+        if (cust.id === selectedCustomerForSale.id) {
+          const newSpent = cust.totalSpent + finalTotalVal;
+          const newPoints = cust.points + pointsEarned;
+          // Upgrade member level if milestone is crossed
+          let newLevel = cust.memberLevel;
+          if (newSpent >= 1000000) newLevel = 'Platinum';
+          else if (newSpent >= 500000) newLevel = 'Gold';
+          else if (newSpent >= 200000) newLevel = 'Silver';
+
+          const newHistoryItem = {
+            id: 'h_' + Date.now().toString().slice(-6),
+            date: new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0') + ' ' + String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0'),
+            amount: finalTotalVal,
+            items: cart.map(item => `${item.name} x${item.qty}`).join(', ')
+          };
+
+          return {
+            ...cust,
+            totalSpent: newSpent,
+            points: newPoints,
+            memberLevel: newLevel,
+            shoppingHistory: [newHistoryItem, ...(cust.shoppingHistory || [])]
+          };
+        }
+        return cust;
+      });
+
+      localStorage.setItem(custKey, JSON.stringify(updatedCustomers));
+      triggerNotification('pelanggan', `LOYALTI: ${selectedCustomerForSale.name} mendapat +${pointsEarned} Poin!`);
+      logSystemActivity(`CRM: Member ${selectedCustomerForSale.name} tercatat belanja. Diskon diberikan: ${discountPct * 100}%`);
+    }
+
     const newSale = {
       id: 'tx_26_' + Math.floor(Math.random() * 89999 + 10000),
-      total: totalVal,
+      total: finalTotalVal,
+      discount: discountAmount,
+      customerName: selectedCustomerForSale?.name || null,
       itemQty: qtyVal,
       meth: payMethod,
       date: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -777,11 +902,13 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
         exp: employeeProfile.exp + (qtyVal * 10)
       };
       setEmployeeProfile(updated);
-      localStorage.setItem('inmarket_employee_profile', JSON.stringify(updated));
+      const empKey = getPartitionedKey('inmarket_employee_profile', false);
+      localStorage.setItem(empKey, JSON.stringify(updated));
     }
 
     setReceipt(newSale);
     setCart([]);
+    setSelectedCustomerForSale(null);
   };
 
   // Lobby chat systems with simulated responses
@@ -798,9 +925,10 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       file: uploadedFileUrl
     };
 
+    const chatKey = getPartitionedKey('inmarket_chats', false);
     const updated = [...chatMessages, newMsg];
     setChatMessages(updated);
-    localStorage.setItem('inmarket_chats', JSON.stringify(updated));
+    localStorage.setItem(chatKey, JSON.stringify(updated));
     setChatInp('');
     setUploadedFileUrl(null);
 
@@ -818,7 +946,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       };
       const nestedUpdated = [...updated, botResponse];
       setChatMessages(nestedUpdated);
-      localStorage.setItem('inmarket_chats', JSON.stringify(nestedUpdated));
+      localStorage.setItem(chatKey, JSON.stringify(nestedUpdated));
     }, 2800);
   };
 
@@ -879,6 +1007,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   // Clean-up logout
   const triggerAppLogout = () => {
+    logActivity('Pengguna keluar (logout) dari platform InMarket.id');
     signOut(auth).then(() => {
       localStorage.removeItem('offline_logged_in_user');
       onNavigate('splash');
@@ -1067,12 +1196,23 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     </div>
                   </div>
 
-                  <h2 className="text-xl md:text-3xl font-black tracking-tight">
-                    {getGreeting() === 'Selamat Malam' ? 'Selamat malam' : getGreeting() === 'Selamat Sore' ? 'Selamat sore' : getGreeting() === 'Selamat Siang' ? 'Selamat siang' : 'Selamat pagi'},{" "}
-                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-violet-400 via-pink-400 to-cyan-300">
-                      Fauzan
-                    </span>
-                  </h2>
+                  <motion.div
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.65, ease: 'easeOut' }}
+                    className="space-y-1"
+                  >
+                    <h2 className="text-2xl md:text-4xl font-extrabold tracking-tight flex flex-wrap items-center gap-x-2 leading-tight">
+                      <span className="text-[#100c2a] dark:text-slate-100 opacity-95">
+                        {getGreeting() === 'Selamat Malam' ? 'Selamat malam' : getGreeting() === 'Selamat Sore' ? 'Selamat sore' : getGreeting() === 'Selamat Siang' ? 'Selamat siang' : 'Selamat pagi'},
+                      </span>
+                      <span className="bg-clip-text text-transparent bg-gradient-to-r from-violet-400 via-fuchsia-400 to-cyan-300 drop-shadow-[0_0_25px_rgba(168,85,247,0.55)] select-none hover:scale-105 transition-transform duration-300 font-black">
+                        {userRole === 'Employee' || userRole === 'Karyawan' 
+                          ? (employeeProfile.fullName || currentUser?.displayName || 'Employee') 
+                          : (currentUser?.displayName || shopData.ownerName || 'Owner')}
+                      </span>
+                    </h2>
+                  </motion.div>
                   <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl">
                     Outlet aktif saat ini: <strong className="text-violet-400 font-mono tracking-wider">{stores.find(s => s.id === currentStore)?.name}</strong>. 
                     Semua modul pencatatan digital kasir, evaluasi bento target, analisis motivasi kecerdasan buatan, dan CCTV tersinkronisasi.
@@ -1741,30 +1881,87 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                   </div>
 
                   {/* FEATURE: REAL-TIME ACTIVITY TIMELINE LOG (History Aktivitas) */}
-                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl relative overflow-hidden text-slate-800 dark:text-violet-100">
-                    <h4 className="text-sm font-black uppercase tracking-widest font-mono text-violet-400 border-b border-slate-500/10 pb-4 mb-4 flex items-center gap-2">
-                      <Activity className="w-4 h-4 text-violet-400 animate-spin" />
-                      AKTIVITAS TERKINI (REAL-TIME)
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-[#6366f125] dark:border-violet-500/15 shadow-xl shadow-indigo-900/5 dark:shadow-violet-950/10 relative overflow-hidden text-slate-800 dark:text-violet-100">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-violet-500/5 dark:bg-violet-500/10 rounded-full blur-2xl pointer-events-none" />
+                    
+                    <h4 className="text-sm font-black uppercase tracking-widest font-mono text-indigo-500 dark:text-violet-400 border-b border-slate-250 dark:border-slate-500/10 pb-4 mb-4 flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-violet-500"></span>
+                        </span>
+                        AKTIVITAS TERKINI (REAL-TIME)
+                      </span>
+                      <span className="text-[10px] bg-indigo-50 dark:bg-violet-950/45 text-indigo-600 dark:text-violet-300 font-mono py-0.5 px-2.5 rounded-full border border-indigo-200/50 dark:border-violet-500/25 font-bold">
+                        {activityHistory.length} Live Log
+                      </span>
                     </h4>
 
-                    <div className="relative border-l border-slate-500/10 ml-3 pl-5 space-y-4 max-h-[290px] overflow-y-auto">
-                      {activityHistory.map((act) => (
-                        <div key={act.id} className="relative text-xs leading-relaxed">
-                          <span className="absolute -left-[26px] top-1.5 w-3 h-3 rounded-full bg-white dark:bg-slate-950 border border-violet-500/40 shadow-sm flex items-center justify-center">
-                            <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-ping" />
-                          </span>
-                          
-                          <div className="flex items-center justify-between gap-1 mb-0.5">
-                            <strong className="text-slate-700 dark:text-slate-100 font-bold uppercase tracking-wider">{act.user}</strong>
-                            <span className="text-[9px] font-mono text-cyan-500">{act.time}</span>
-                          </div>
-                          
-                          <p className="text-slate-500 dark:text-slate-400 font-mono text-[11px] leading-tight text-justify">
-                            {act.action}
+                    {activityHistory.length === 0 ? (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5 }}
+                        className="py-12 px-4 flex flex-col items-center justify-center text-center space-y-4"
+                      >
+                        {/* 3D Hologram wireframe simulator */}
+                        <div className="relative flex items-center justify-center">
+                          <motion.div 
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+                            className="w-16 h-16 rounded-full border-2 border-dashed border-indigo-500/20 dark:border-violet-500/25 absolute"
+                          />
+                          <motion.div 
+                            animate={{ y: [0, -8, 0] }}
+                            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                            className="relative w-12 h-12 rounded-full bg-gradient-to-tr from-indigo-500/10 to-violet-500/10 dark:from-purple-500/10 dark:to-cyan-400/10 border border-indigo-500/30 dark:border-violet-500/30 flex items-center justify-center shadow-lg shadow-indigo-500/10"
+                          >
+                            <Activity className="w-5 h-5 text-indigo-500 dark:text-cyan-400 animate-pulse" />
+                          </motion.div>
+                          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-[#0c091f]" />
+                        </div>
+
+                        <div className="space-y-1">
+                          <h5 className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                            {language === 'id' ? 'Belum Ada Aktivitas' : 'No Activity Listed'}
+                          </h5>
+                          <p className="text-[10px] text-slate-400 dark:text-slate-400 font-mono leading-relaxed max-w-[200px]">
+                            {language === 'id' ? 'Mulai gunakan fitur InMarket.id' : 'Initiate tools to track operations'}
                           </p>
                         </div>
-                      ))}
-                    </div>
+                      </motion.div>
+                    ) : (
+                      <div className="relative border-l border-indigo-500/20 dark:border-violet-500/15 ml-3 pl-5 space-y-5 max-h-[310px] overflow-y-auto scrollbar-thin scrollbar-thumb-indigo-500/10 pr-2">
+                        <AnimatePresence initial={false}>
+                          {activityHistory.map((act, index) => (
+                            <motion.div 
+                              key={act.id} 
+                              initial={{ opacity: 0, x: -15, y: -2 }}
+                              animate={{ opacity: 1, x: 0, y: 0 }}
+                              transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.4) }}
+                              className="relative text-xs leading-relaxed group hover:bg-slate-500/5 p-2 rounded-xl transition-all duration-300"
+                            >
+                              <span className="absolute -left-[28px] top-3.5 w-3 h-3 rounded-full bg-white dark:bg-slate-950 border-2 border-indigo-500 dark:border-violet-400 shadow-sm flex items-center justify-center">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-violet-400 group-hover:scale-110 transition-transform duration-300" />
+                              </span>
+                              
+                              <div className="flex items-center justify-between gap-1 mb-1">
+                                <strong className="text-slate-700 dark:text-slate-100 font-bold uppercase tracking-wider text-[11px] font-mono">
+                                  {act.user}
+                                </strong>
+                                <span className="text-[9px] font-mono text-indigo-500 dark:text-cyan-400 font-bold bg-indigo-50 dark:bg-black/40 px-1.5 py-0.5 rounded border border-indigo-500/10 dark:border-violet-500/10">
+                                  {act.time}
+                                </span>
+                              </div>
+                              
+                              <p className="text-slate-600 dark:text-slate-300 font-mono text-[10.5px] leading-relaxed break-words">
+                                {act.action}
+                              </p>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
+                    )}
                   </div>
 
                 </div>
@@ -1822,105 +2019,20 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                 <div className="bg-[#0c0822]/85 border border-violet-500/20 p-5 rounded-3xl backdrop-blur-md relative overflow-hidden text-slate-100">
                   <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-transparent pointer-events-none" />
                   
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-500/10 pb-4 mb-4 gap-2">
-                    <div>
-                      <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 flex items-center gap-2">
-                        <ScanBarcode className="w-5 h-5 text-cyan-400 animate-pulse" />
-                        TERMINAL SCANNER BARCODE & QR HOLOGRAFIS
-                      </h4>
-                      <p className="text-[10px] font-mono text-slate-400 mt-1">AI MENELUSURI INDEKS STOK SECARA REAL-TIME & MEMASUKKAN PRODUK KE KERANJANG</p>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => {
-                          playClickSound();
-                          setIsScannerActive(!isScannerActive);
-                          if (!isScannerActive) {
-                            triggerNotification('toko', 'Sistem Kamera Sensor QR/Barcode Diaktifkan');
-                          }
-                        }}
-                        className={cn(
-                          "px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all cursor-pointer",
-                          isScannerActive 
-                            ? "bg-rose-500/20 border border-rose-500/30 text-rose-400" 
-                            : "bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.2)]"
-                        )}
-                      >
-                        {isScannerActive ? 'MATIKAN KAMERA' : 'AKTIFKAN EMULATOR LASER'}
-                      </button>
-                    </div>
+                  <div className="mb-4">
+                    <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 flex items-center gap-2">
+                      <ScanBarcode className="w-5 h-5 text-cyan-400 animate-pulse" />
+                      TERMINAL SCANNER BARCODE & QR REAL-TIME
+                    </h4>
+                    <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase">
+                      Pindai QR Code Pelanggan untuk CRM atau Barcode Produk untuk masuk ke Keranjang Kasir.
+                    </p>
                   </div>
 
-                  {isScannerActive ? (
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
-                      
-                      {/* Live scanning video stream simulation */}
-                      <div className="md:col-span-6 relative aspect-video bg-black rounded-2xl overflow-hidden border border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.15)]">
-                        <div className="absolute inset-0 bg-cyan-950/20 pointer-events-none" />
-                        
-                        {/* Interactive red scanning laser visual */}
-                        <motion.div 
-                          animate={{ y: ["0%", "100%", "0%"] }} 
-                          transition={{ repeat: Infinity, duration: 2.2, ease: "linear" }}
-                          className="absolute left-0 w-full h-0.5 bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.85)] z-20"
-                        />
-                        
-                        {/* Target reticle overlay */}
-                        <div className="absolute inset-6 border border-dashed border-cyan-400/40 rounded-xl pointer-events-none flex items-center justify-center">
-                          <div className="border-t-2 border-l-2 border-cyan-400 w-4 h-4 absolute top-0 left-0" />
-                          <div className="border-t-2 border-r-2 border-cyan-400 w-4 h-4 absolute top-0 right-0" />
-                          <div className="border-b-2 border-l-2 border-cyan-400 w-4 h-4 absolute bottom-0 left-0" />
-                          <div className="border-b-2 border-r-2 border-cyan-400 w-4 h-4 absolute bottom-0 right-0" />
-                          
-                          {/* Fake barcode image simulation */}
-                          <div className="w-32 opacity-40 transition duration-500 flex flex-col items-center gap-1">
-                            <span className="font-mono text-[9px] text-cyan-400 tracking-[0.2em]">|||| | || ||| ||</span>
-                            <span className="text-[7.5px] font-mono text-cyan-400 leading-none">89927651026</span>
-                          </div>
-                        </div>
-
-                        <div className="absolute bottom-2 left-2 text-[8px] font-mono text-cyan-400 uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded border border-cyan-500/20">
-                          AI_CCTV_APERTURE_FEED
-                        </div>
-                      </div>
-
-                      {/* Manual mock fast scan buttons */}
-                      <div className="md:col-span-6 space-y-3">
-                        <p className="text-xs text-slate-300">
-                          Tekan produk bersandi barcode di bawah ini untuk mensimulasikan tangkapan sensor scanner fisik secara real-time:
-                        </p>
-                        
-                        <div className="grid grid-cols-2 gap-2">
-                          {products.slice(0, 4).map((p) => (
-                            <button
-                              key={p.id}
-                              onClick={() => {
-                                playScanSound();
-                                addToCart(p);
-                                triggerNotification('transaksi', `SCAN SUKSES: ${p.name} [${p.barcode || '8993010'}] masuk keranjang!`);
-                                logSystemActivity(`Barcode scanned: ${p.name} dimasukkan otomatis ke slip belanja.`);
-                              }}
-                              className="px-3 py-2 bg-slate-900/40 hover:bg-violet-950/30 border border-violet-500/10 hover:border-cyan-400/50 rounded-xl text-[11px] font-mono font-black text-left flex flex-col justify-between cursor-pointer leading-tight transition-all"
-                            >
-                              <div className="truncate text-slate-100">{p.name}</div>
-                              <div className="text-[9px] text-cyan-400 mt-1 font-semibold tracking-wider font-mono">BC: {p.barcode || '8992026' + p.id.slice(0, 3)}</div>
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="text-[10px] text-slate-400 leading-relaxed font-mono">
-                          💡 Alat ini memverifikasi barcode serial number, memeriksa ketersediaan stok ganda, dan melacak harga terkini.
-                        </div>
-                      </div>
-
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-xs text-slate-400 italic font-mono border border-dashed border-[#6366f131] rounded-2xl">
-                      Kamera scanner offline. Klik tombol emulator di atas untuk menyimulasikan tangkapan laser sensor.
-                    </div>
-                  )}
-
+                  <QRScanner
+                    onScanSuccess={handleScanResult}
+                    placeholderText="Ketik barcode produk atau ID member..."
+                  />
                 </div>
 
                 <h3 className="text-sm font-black uppercase tracking-widest text-indigo-500 mb-2 mt-6">{language === 'id' ? 'Katalog Pembelian Kasir' : 'POS Cashier Catalog'}</h3>
@@ -1952,6 +2064,38 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
               <div className="lg:col-span-4 p-6 bg-white dark:bg-[#0a0715] rounded-3xl border border-indigo-100/10 flex flex-col justify-between h-[520px] shadow-xl relative">
                 <div>
                   <h4 className="text-xs font-black uppercase tracking-widest text-indigo-500 border-b border-indigo-100/10 pb-4 mb-4">{language === 'id' ? 'Keranjang Transaksi' : 'Checkout Cart'}</h4>
+                  
+                  {/* Selected Customer / Membership indicator in POS */}
+                  <div className="mb-4">
+                    {selectedCustomerForSale ? (
+                      <div className="p-3 bg-violet-600/10 border border-violet-500/30 rounded-2xl flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-violet-400" />
+                          <div>
+                            <span className="text-[9px] font-bold text-violet-300 block leading-none">MEMBER TERHUBUNG</span>
+                            <span className="text-xs font-black text-slate-700 dark:text-slate-100">{selectedCustomerForSale.name}</span>
+                          </div>
+                        </div>
+                        <div className="text-right flex items-center gap-2 text-[10px]">
+                          <span className="font-mono font-bold bg-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded leading-none">
+                            {selectedCustomerForSale.memberLevel} ({Math.round(getLoyaltyDiscount(selectedCustomerForSale)*100)}% Disc)
+                          </span>
+                          <button 
+                            onClick={() => { playClickSound(); setSelectedCustomerForSale(null); }}
+                            className="text-rose-400 hover:text-rose-300 p-0.5 cursor-pointer"
+                            title="Hapus Member"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-[#f4f2ff]/30 dark:bg-slate-950/30 border border-dashed border-indigo-400/10 rounded-2xl text-center">
+                        <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500">BELUM ADA MEMBER TERHUBUNG</span>
+                        <p className="text-[8px] opacity-40 mt-0.5">Scan membership QR code di Scanner untuk diskon & point reward!</p>
+                      </div>
+                    )}
+                  </div>
                   
                   {cart.length === 0 ? (
                     <div className="text-center py-20 text-xs opacity-40 font-mono">
@@ -1998,9 +2142,26 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     </div>
                   </div>
 
+                  {selectedCustomerForSale && (
+                    <div className="space-y-1 text-[11px] font-mono border-t border-indigo-100/5 pt-2">
+                      <div className="flex justify-between text-slate-500">
+                        <span>SUBTOTAL BELANJA</span>
+                        <span>Rp{cart.reduce((sum, item) => sum + (item.price * item.qty), 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-rose-500">
+                        <span>DISKON ({Math.round(getLoyaltyDiscount(selectedCustomerForSale)*100)}% MEMBER)</span>
+                        <span>-Rp{Math.round(cart.reduce((sum, item) => sum + (item.price * item.qty), 0) * getLoyaltyDiscount(selectedCustomerForSale)).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex justify-between font-black text-sm border-t border-indigo-100/5 pt-2">
                     <span className="uppercase opacity-60">TOTAL BILL</span>
-                    <span className="text-cyan-500">Rp{cart.reduce((sum, item) => sum + (item.price * item.qty), 0).toLocaleString()}</span>
+                    <span className="text-cyan-500">
+                      Rp{Math.round(
+                        cart.reduce((sum, item) => sum + (item.price * item.qty), 0) * (1 - getLoyaltyDiscount(selectedCustomerForSale))
+                      ).toLocaleString()}
+                    </span>
                   </div>
 
                   <button 

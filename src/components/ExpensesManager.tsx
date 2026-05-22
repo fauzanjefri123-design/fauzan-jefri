@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getPartitionedKey } from '../lib/utils';
 import { motion } from 'framer-motion';
 import { 
   DollarSign, Wifi, Lightbulb, Droplets, Home, Users, Landmark, 
@@ -28,7 +29,8 @@ const DEFAULT_EXPENSES: Expense[] = [
 
 export default function ExpensesManager() {
   const [expenses, setExpenses] = useState<Expense[]>(() => {
-    const saved = localStorage.getItem('inmarket_expenses_data');
+    const key = getPartitionedKey('inmarket_expenses_data', true);
+    const saved = localStorage.getItem(key);
     return saved ? JSON.parse(saved) : DEFAULT_EXPENSES;
   });
 
@@ -36,7 +38,8 @@ export default function ExpensesManager() {
   const [revenue, setRevenue] = useState(15750000); // realistic default baseline
 
   useEffect(() => {
-    const rawSales = localStorage.getItem('inmarket_sales');
+    const salesKey = getPartitionedKey('inmarket_sales', true);
+    const rawSales = localStorage.getItem(salesKey);
     if (rawSales) {
       try {
         const parsed = JSON.parse(rawSales);
@@ -54,7 +57,8 @@ export default function ExpensesManager() {
 
   const saveExpenses = (data: Expense[]) => {
     setExpenses(data);
-    localStorage.setItem('inmarket_expenses_data', JSON.stringify(data));
+    const key = getPartitionedKey('inmarket_expenses_data', true);
+    localStorage.setItem(key, JSON.stringify(data));
   };
 
   const handleCreateExpense = (e: React.FormEvent) => {

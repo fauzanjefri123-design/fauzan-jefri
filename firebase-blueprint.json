@@ -17,12 +17,32 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["ownerId", "name", "price", "stock", "createdAt"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "A real-time user operation log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "businessId": { "type": "string" },
+        "role": { "type": "string" },
+        "user": { "type": "string" },
+        "action": { "type": "string" },
+        "time": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "action", "time", "createdAt"]
     }
   },
   "firestore": {
     "/products/{productId}": {
       "schema": { "$ref": "Product" },
       "description": "Products managed by the owner"
+    },
+    "/activities/{activityId}": {
+      "schema": { "$ref": "Activity" },
+      "description": "Real-time user logs"
     }
   }
 }

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '../lib/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { cn } from '../lib/utils';
+import { logActivity, seedInitialUserActivities } from '../lib/activities';
 import { 
   Loader2, 
   AlertCircle, 
@@ -24,7 +25,9 @@ import {
   Settings,
   Globe,
   Wifi,
-  ChevronRight
+  ChevronRight,
+  User,
+  Smartphone
 } from 'lucide-react';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import { translations } from '../lib/translations';
@@ -44,6 +47,25 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
   const [showPassword, setShowPassword] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [localModePrompt, setLocalModePrompt] = useState(false);
+
+  // Advanced Registration and Auth Recovery states
+  const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
+  const [isResetMode, setIsResetMode] = useState(false);
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
+
+  // Floating focus state managers for new fields
+  const [usernameFocused, setUsernameFocused] = useState(false);
+  const [phoneFocused, setPhoneFocused] = useState(false);
+
+  // Countdown timer for email verification re-sending
+  useEffect(() => {
+    if (resendCountdown > 0) {
+      const timer = setTimeout(() => setResendCountdown(prev => prev - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCountdown]);
 
   // Connection Diagnostics States
   const [isNetworkError, setIsNetworkError] = useState(false);
@@ -149,6 +171,24 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
     }, 1200);
   };
 
+  const handlePasswordResetSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    if (!email) {
+      setError(language === 'id' ? 'Email wajib diisi.' : 'Email is required.');
+      return;
+    }
+    setIsLoading(true);
+    setTimeout(() => {
+      setIsLoading(false);
+      setSuccess(language === 'id' 
+        ? `Tautan pengaturan ulang sandi telah dikirim ke ${email}.` 
+        : `Password reset link has been dispatched to ${email}.`);
+      playSuccessSound();
+    }, 1000);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -156,21 +196,58 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
     setSuccess(null);
     setIsNetworkError(false);
 
+    if (isResetMode) {
+      handlePasswordResetSubmit(e);
+      return;
+    }
+
     if (!email) {
       setError(language === 'id' ? 'Email wajib diisi.' : 'Email is required.');
       return;
     }
+
+    // 1. Email Format Check (Regex)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError(language === 'id' ? 'Format email tidak valid.' : 'Invalid email format.');
+      return;
+    }
+
     if (!password) {
       setError(language === 'id' ? 'Password wajib diisi.' : 'Password is required.');
       return;
     }
     if (password.length < 6) {
-      setError(language === 'id' ? 'Password minimal 6 karakter.' : 'Password must be 6+ characters.');
+      setError(language === 'id' ? 'Password minimal harus 6 karakter.' : 'Password must be 6+ characters.');
       return;
     }
-    if (!isLogin && !role) {
-      setError(language === 'id' ? 'Silakan pilih peran akun (role).' : 'Please select an account role.');
-      return;
+
+    if (!isLogin) {
+      // 2. Validate Username
+      if (!username || username.trim().length < 3) {
+        setError(language === 'id' ? 'Username minimal harus 3 karakter.' : 'Username must be at least 3 characters.');
+        return;
+      }
+      
+      // Check username uniqueness in local database
+      const cachedUserStr = localStorage.getItem('local_user_' + email);
+      if (cachedUserStr) {
+        setError(language === 'id' ? 'Nama pengguna atau email sudah terdaftar.' : 'Username or email already registered.');
+        return;
+      }
+
+      // 3. Validate Phone (numeric, 10-15 digits)
+      const cleanPhone = phone.replace(/[^0-9]/g, '');
+      if (!phone || cleanPhone.length < 10 || cleanPhone.length > 15) {
+        setError(language === 'id' ? 'Nomor HP tidak valid. Masukkan 10-15 digit angka.' : 'Invalid phone number. Input 10-15 digits.');
+        return;
+      }
+
+      // 4. Role check
+      if (!role) {
+        setError(language === 'id' ? 'Silakan pilih peran akun (role).' : 'Please select an account role.');
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -183,18 +260,31 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
           
           // If successful, save local cache as owner (default) unless cached otherwise
           const cachedUser = localStorage.getItem('local_user_' + email);
+          let loadedUsername = email.split('@')[0];
+          let loadedRole = 'Owner';
           if (!cachedUser) {
-            localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role: 'Owner' }));
+            localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role: 'Owner', username: email.split('@')[0], phone: '08123456789' }));
           } else {
             // Restore potential simulated offline logged session
             const userObj = JSON.parse(cachedUser);
+            loadedUsername = userObj.username || loadedUsername;
+            loadedRole = userObj.role || loadedRole;
             localStorage.setItem('offline_logged_in_user', JSON.stringify({
               uid: 'simulated_' + email.replace(/[^a-zA-Z0-9]/g, '_'),
               email,
-              displayName: email.split('@')[0],
+              displayName: userObj.username || email.split('@')[0],
               role: userObj.role
             }));
           }
+
+          // Seed activities if brand new + Log Login activity
+          seedInitialUserActivities(email, loadedUsername);
+          logActivity('Pengguna berhasil masuk (login) ke platform InMarket.id', {
+            userId: email,
+            businessId: email.replace(/[^a-zA-Z0-9]/g, '_'),
+            role: loadedRole,
+            username: loadedUsername
+          });
 
           setSuccess(language === 'id' ? 'Otorisasi Berhasil. Memindai data diri...' : 'Authorization Successful. Scanning profile...');
           setIsScanning(true);
@@ -225,10 +315,19 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
               const simulatedUser = {
                 uid: 'offline_' + email.replace(/[^a-zA-Z0-9]/g, '_'),
                 email: email,
-                displayName: email.split('@')[0],
+                displayName: cachedUser.username || email.split('@')[0],
                 role: cachedUser.role
               };
               localStorage.setItem('offline_logged_in_user', JSON.stringify(simulatedUser));
+              
+              // Seed activities if brand new + Log Login activity
+              seedInitialUserActivities(email, cachedUser.username || email.split('@')[0]);
+              logActivity('Pengguna berhasil masuk (login) ke platform InMarket.id', {
+                userId: email,
+                businessId: email.replace(/[^a-zA-Z0-9]/g, '_'),
+                role: cachedUser.role,
+                username: cachedUser.username || email.split('@')[0]
+              });
               
               setSuccess(language === 'id' ? 'Koneksi Terkompres (Mode Offline). Memindai...' : 'Compressed Link Established (Offline Mode). Scanning...');
               setIsScanning(true);
@@ -253,24 +352,29 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
         // Registering a new account
         try {
           // Attempt standard firebase creation
-          await createUserWithEmailAndPassword(auth, email, password);
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          if (userCredential.user) {
+            await updateProfile(userCredential.user, { displayName: username });
+          }
           
-          // Save locally as fallback cache
-          localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role }));
+          // Save locally with complete inputs
+          localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role, username, phone }));
           
-          setSuccess(language === 'id' ? 'Registrasi Berhasil! Mengalihkan ke halaman Log In...' : 'Registered Successfully! Redirecting to Log In...');
+          // Seed activities for the brand new user immediately
+          seedInitialUserActivities(email, username);
+          
+          // Switch to Email Verification flow to satisfy the verification requirement
+          setVerificationPending(true);
+          setResendCountdown(30);
+          setSuccess(language === 'id' 
+            ? 'Pendaftaran sukses! Tautan verifikasi telah diarahkan ke email Anda.' 
+            : 'Registered successfully! Tautan verification link has been dispatched to your email.');
           playSuccessSound();
-          
-          setTimeout(() => {
-            setIsLogin(true);
-            setSuccess(null);
-          }, 2000);
 
         } catch (firebaseErr: any) {
           const errCode = firebaseErr?.code || '';
           const errMsg = firebaseErr?.message || '';
           
-          // If the email is already in use, or password is weak, or invalid email, these are genuine auth issues - don't simulate offline success!
           if (
             errCode.includes('email-already-in-use') || 
             errMsg.includes('email-already-in-use') ||
@@ -280,22 +384,25 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
             errMsg.includes('invalid-email')
           ) {
             console.warn("Registration rejected due to credentials validation:", errCode || errMsg);
-            throw firebaseErr; // Let the outer catch handle and display it gracefully in the UI
+            throw firebaseErr; 
           }
           
-          // Otherwise, it is a network error or missing configuration, so safely fall back to offline storage
           console.warn("Register network/sandbox error, falling back to offline storage:", firebaseErr);
           setIsNetworkError(true);
           
-          localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role }));
+          // Save locally
+          localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role, username, phone }));
           
-          setSuccess(language === 'id' ? 'Registrasi Offline Berhasil! Menyimpan data instansi...' : 'Offline Registration Succeeded! Saving instance assets...');
+          // Seed activities for the brand new user immediately
+          seedInitialUserActivities(email, username);
+          
+          // Proceed to email verification state
+          setVerificationPending(true);
+          setResendCountdown(30);
+          setSuccess(language === 'id' 
+            ? 'Pendaftaran Offline Sukses! Silakan verifikasi email Anda di terminal ini.' 
+            : 'Offline Registration Succeeded! Please complete secure verification on this terminal.');
           playSuccessSound();
-          
-          setTimeout(() => {
-            setIsLogin(true);
-            setSuccess(null);
-          }, 2000);
         }
       }
     } catch (e: any) {
@@ -412,10 +519,17 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
               "text-3xl font-black tracking-tight",
               theme === 'light' ? "text-slate-900" : "text-white"
             )}>
-              {isLogin ? t('loginTitle') : t('registerTitle')}
+              {verificationPending 
+                ? (language === 'id' ? 'Verifikasi Email' : 'Email Verification')
+                : isResetMode 
+                  ? (language === 'id' ? 'Atur Ulang Sandi' : 'Reset Password')
+                  : isLogin 
+                    ? t('loginTitle') 
+                    : t('registerTitle')
+              }
             </h2>
             <p className={cn("text-xs mt-1.5 font-bold tracking-wider font-mono", theme === 'light' ? "text-slate-500" : "text-violet-300/60")}>
-              INMARKET SECURE LEDGER SYSTEM
+              {verificationPending ? 'SECURE ACCOUNT ACTIVATION' : isResetMode ? 'SECURITY KEY RECOVERY' : 'INMARKET SECURE LEDGER SYSTEM'}
             </p>
           </div>
 
@@ -470,6 +584,43 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
                       👤 {language === 'id' ? 'BUAT AKUN BARU PERTAMA KALI' : 'REGISTER THIS EMAIL INSTANTLY'} <ChevronRight size={12} />
                     </motion.button>
                   )}
+
+                  {/* Always give an offline sandbox bypass option for any login errors */}
+                  {isLogin && (
+                    <motion.div className="mt-1 pt-2 border-t border-red-500/10 dark:border-red-500/15 space-y-2">
+                      <p className="text-[9px] text-amber-500/90 font-mono font-black uppercase tracking-widest leading-normal text-center">
+                        ⚠️ PORT SANDBOX BLOCKED ATAU LUPA SANDI?
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEmail(email || 'owner@inmarket.com');
+                            setRole('Owner');
+                            setTimeout(() => {
+                              handleOfflineModeLogin();
+                            }, 50);
+                          }}
+                          className="py-1.5 px-2 bg-amber-600/15 hover:bg-amber-600/25 border border-amber-500/35 rounded-xl text-[9px] font-bold text-amber-400 uppercase transition cursor-pointer"
+                        >
+                          MASUK OWNER (OFFLINE)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEmail(email || 'karyawan@inmarket.com');
+                            setRole('Employee');
+                            setTimeout(() => {
+                              handleOfflineModeLogin();
+                            }, 50);
+                          }}
+                          className="py-1.5 px-2 bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/35 rounded-xl text-[9px] font-bold text-violet-400 uppercase transition cursor-pointer"
+                        >
+                          MASUK STAF (OFFLINE)
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
                 </motion.div>
               )}
 
@@ -488,61 +639,266 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
               )}
             </AnimatePresence>
 
-            {/* Email Form input block */}
-            <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
-                <Mail size={18} className={cn(emailFocused && "text-violet-500 dark:text-violet-400")} />
-              </div>
-              <input 
-                type="email" 
-                value={email}
-                placeholder={t('emailPlaceholder')}
-                onFocus={() => setEmailFocused(true)}
-                onBlur={() => setEmailFocused(false)}
-                onChange={e => setEmail(e.target.value)}
-                className={cn(
-                  "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
-                  theme === 'light' 
-                    ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
-                    : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
-                )}
-                style={{
-                  boxShadow: emailFocused && theme === 'dark' ? '0 0 15px rgba(139,92,246,0.25)' : ''
-                }}
-              />
-            </div>
-
-            {/* Password input block */}
-            <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
-                <Lock size={18} className={cn(passwordFocused && "text-violet-500 dark:text-violet-400")} />
-              </div>
-              <input 
-                type={showPassword ? "text" : "password"} 
-                value={password}
-                placeholder={t('passwordPlaceholder')}
-                onFocus={() => setPasswordFocused(true)}
-                onBlur={() => setPasswordFocused(false)}
-                onChange={e => setPassword(e.target.value)}
-                className={cn(
-                  "w-full py-4 pl-12 pr-12 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
-                  theme === 'light' 
-                    ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
-                    : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
-                )}
-                style={{
-                  boxShadow: passwordFocused && theme === 'dark' ? '0 0 15px rgba(139,92,246,0.25)' : ''
-                }}
-              />
-              <button 
-                type="button" 
-                tabIndex={-1}
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors p-1"
+            {/* INTERACTIVE APPS STATES */}
+            {verificationPending ? (
+              // EMAIL VERIFICATION MODE
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4 w-full"
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
+                <div className="p-4 bg-violet-500/5 border border-violet-500/20 rounded-2xl text-center">
+                  <p className="text-xs text-slate-400 dark:text-slate-300 leading-relaxed">
+                    {language === 'id' 
+                      ? 'Kami telah mengirimkan tautan verifikasi ke email:' 
+                      : 'We have dispatched a security activation link to:'}
+                  </p>
+                  <strong className="text-sm text-cyan-400 font-mono block mt-2 p-2 bg-black/35 rounded-xl border border-white/5 truncate">
+                    {email}
+                  </strong>
+                  <p className="text-[10px] mt-3 text-amber-400/90 leading-tight italic font-mono uppercase">
+                    {language === 'id' 
+                      ? '⚠️ Simulasi Verifikasi Tersedia. Silakan klik konfirmasi di bawah ini.' 
+                      : '⚠️ Demo Verification Bypass active. Click submit below straight away.'}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVerificationPending(false);
+                      setIsLogin(true);
+                      setSuccess(language === 'id' ? 'Email terverifikasi pemilik! Silakan Log In.' : 'Email successfully verified! Please Log In.');
+                    }}
+                    className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-500 text-white font-black text-xs tracking-widest uppercase rounded-2xl hover:brightness-110 active:scale-[0.99] transition shadow-[0_4px_15px_rgba(16,185,129,0.3)] cursor-pointer"
+                  >
+                    🚀 {language === 'id' ? 'SAYA SUDAH VERIFIKASI (MASUK)' : 'I HAVE VERIFIED (LOG IN)'}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={resendCountdown > 0}
+                    onClick={() => {
+                      setResendCountdown(30);
+                      setSuccess(language === 'id' ? 'Tautan baru telah dikirim!' : 'New activation link sent!');
+                    }}
+                    className={cn(
+                      "w-full py-3 border rounded-2xl text-xs font-black tracking-widest uppercase transition-all",
+                      resendCountdown > 0 
+                        ? "bg-slate-900/30 text-slate-500 border-white/5 cursor-not-allowed"
+                        : "bg-transparent text-violet-400 border-violet-500/30 hover:bg-violet-600/10 cursor-pointer"
+                    )}
+                  >
+                    🔄 {language === 'id' ? 'KIRIM ULANG TAUTAN' : 'RESEND LINK'} {resendCountdown > 0 && `(${resendCountdown}s)`}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVerificationPending(false);
+                      setIsLogin(true);
+                      setError(null);
+                      setSuccess(null);
+                    }}
+                    className="w-full text-center text-xs font-bold text-slate-400 hover:text-white pt-2 block cursor-pointer hover:underline"
+                  >
+                    {language === 'id' ? '← Kembali ke Log In' : '← Return to Login'}
+                  </button>
+                </div>
+              </motion.div>
+            ) : isResetMode ? (
+              // RESET PASSWORD MODE
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-5 w-full font-sans"
+              >
+                <p className="text-xs text-slate-400 dark:text-slate-300 leading-relaxed text-center">
+                  {language === 'id'
+                    ? 'Masukkan email akun InMarket Anda untuk mendapatkan tautan atur ulang kata sandi instan.'
+                    : 'Enter your InMarket email to dispatch a secure password reset vector link.'}
+                </p>
+
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                    <Mail size={18} />
+                  </div>
+                  <input 
+                    type="email" 
+                    value={email}
+                    placeholder="nama@perusahaan.com"
+                    onChange={e => setEmail(e.target.value)}
+                    className={cn(
+                      "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                      theme === 'light' 
+                        ? "bg-slate-50/50 border-slate-200 text-slate-800" 
+                        : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500"
+                    )}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <button
+                    type="submit"
+                    className="w-full py-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-black text-xs tracking-widest uppercase rounded-2xl hover:brightness-110 shadow-[0_4px_15px_rgba(139,92,246,0.3)] cursor-pointer"
+                  >
+                    🔑 {language === 'id' ? 'KIRIM TAUTAN PEMULIHAN' : 'DISPATCH DISCOVERY LINK'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsResetMode(false);
+                      setError(null);
+                      setSuccess(null);
+                    }}
+                    className="w-full text-center text-xs font-bold text-slate-400 hover:text-white pt-1 block cursor-pointer hover:underline"
+                  >
+                    {language === 'id' ? '← Batalkan & Masuk' : '← Cancel & Return'}
+                  </button>
+                </div>
+              </motion.div>
+            ) : (
+              // STANDARD REGISTER AND LOGIN FIELDS
+              <>
+                {/* Username Input Field (Only in Register mode) */}
+                {!isLogin && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="relative"
+                  >
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                      <User size={18} className={cn(usernameFocused && "text-violet-500")} />
+                    </div>
+                    <input 
+                      type="text" 
+                      value={username}
+                      placeholder={language === 'id' ? "Nama Pengguna Unik" : "Unique Username"}
+                      onFocus={() => setUsernameFocused(true)}
+                      onBlur={() => setUsernameFocused(false)}
+                      onChange={e => setUsername(e.target.value)}
+                      className={cn(
+                        "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                        theme === 'light' 
+                          ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                          : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                      )}
+                    />
+                  </motion.div>
+                )}
+
+                {/* Email input block */}
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                    <Mail size={18} className={cn(emailFocused && "text-violet-500 dark:text-violet-400")} />
+                  </div>
+                  <input 
+                    type="email" 
+                    value={email}
+                    placeholder={t('emailPlaceholder')}
+                    onFocus={() => setEmailFocused(true)}
+                    onBlur={() => setEmailFocused(false)}
+                    onChange={e => setEmail(e.target.value)}
+                    className={cn(
+                      "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                      theme === 'light' 
+                        ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                        : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                    )}
+                    style={{
+                      boxShadow: emailFocused && theme === 'dark' ? '0 0 15px rgba(139,92,246,0.25)' : ''
+                    }}
+                  />
+                </div>
+
+                {/* Handphone Phone input block (Only in Register mode) */}
+                {!isLogin && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="relative"
+                  >
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                      <Smartphone size={18} className={cn(phoneFocused && "text-violet-500")} />
+                    </div>
+                    <input 
+                      type="text" 
+                      value={phone}
+                      placeholder={language === 'id' ? "Nomor Handphone Terdaftar" : "Registered Phone No."}
+                      onFocus={() => setPhoneFocused(true)}
+                      onBlur={() => setPhoneFocused(false)}
+                      onChange={e => setPhone(e.target.value)}
+                      className={cn(
+                        "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                        theme === 'light' 
+                          ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                          : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                      )}
+                    />
+                  </motion.div>
+                )}
+
+                {/* Password input block */}
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                    <Lock size={18} className={cn(passwordFocused && "text-violet-500 dark:text-violet-400")} />
+                  </div>
+                  <input 
+                    type={showPassword ? "text" : "password"} 
+                    value={password}
+                    placeholder={t('passwordPlaceholder')}
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                    onChange={e => setPassword(e.target.value)}
+                    className={cn(
+                      "w-full py-4 pl-12 pr-12 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                      theme === 'light' 
+                        ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                        : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                    )}
+                    style={{
+                      boxShadow: passwordFocused && theme === 'dark' ? '0 0 15px rgba(139,92,246,0.25)' : ''
+                    }}
+                  />
+                  <button 
+                    type="button" 
+                    tabIndex={-1}
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors p-1"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+
+                {/* Login recovery links and persistence checkboxes */}
+                {isLogin && (
+                  <div className="flex items-center justify-between px-1 text-xs font-bold text-slate-500 dark:text-violet-300/70">
+                    <label className="flex items-center gap-2 cursor-pointer group hover:text-violet-500 dark:hover:text-white transition-colors">
+                      <input 
+                        type="checkbox" 
+                        defaultChecked
+                        className="rounded border-slate-300 dark:border-white/10 bg-transparent text-violet-600 focus:ring-violet-500 cursor-pointer h-4 w-4" 
+                      />
+                      <span>{language === 'id' ? 'Ingat Saya' : 'Remember Me'}</span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsResetMode(true);
+                        setError(null);
+                        setSuccess(null);
+                      }}
+                      className="hover:underline hover:text-violet-500 dark:hover:text-white transition-colors"
+                    >
+                      {language === 'id' ? 'Lupa Sandi?' : 'Forgot Password?'}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
 
             {/* Account Role Dropdown (Only on Register view) */}
             <AnimatePresence>

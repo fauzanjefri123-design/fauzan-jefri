@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getPartitionedKey } from '../lib/utils';
 import { 
   Truck, Search, Plus, Trash2, Heart, Phone, MapPin, Package, Star, 
   Sparkles, History, Check, AlertTriangle 
@@ -65,7 +66,8 @@ const DEFAULT_SUPPLIERS: Supplier[] = [
 
 export default function SuppliersManager() {
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
-    const saved = localStorage.getItem('inmarket_suppliers_data');
+    const key = getPartitionedKey('inmarket_suppliers_data', false);
+    const saved = localStorage.getItem(key);
     return saved ? JSON.parse(saved) : DEFAULT_SUPPLIERS;
   });
 
@@ -85,7 +87,8 @@ export default function SuppliersManager() {
 
   const saveSuppliers = (data: Supplier[]) => {
     setSuppliers(data);
-    localStorage.setItem('inmarket_suppliers_data', JSON.stringify(data));
+    const key = getPartitionedKey('inmarket_suppliers_data', false);
+    localStorage.setItem(key, JSON.stringify(data));
   };
 
   const handleAddSupplier = (e: React.FormEvent) => {
