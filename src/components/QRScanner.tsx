@@ -60,8 +60,18 @@ export default function QRScanner({ onScanSuccess, placeholderText, isQuickMode 
     return () => {
       active = false;
       // Force shutdown scanning on unmount
-      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-        html5QrCodeRef.current.stop().catch(e => console.warn("Unmount cleanup stop error:", e));
+      if (html5QrCodeRef.current) {
+        try {
+          if (html5QrCodeRef.current.isScanning) {
+              html5QrCodeRef.current.stop().then(() => {
+                  html5QrCodeRef.current?.clear();
+              }).catch(e => console.warn("Unmount cleanup stop error:", e));
+          } else {
+              html5QrCodeRef.current.clear();
+          }
+        } catch(e) {
+          console.warn("Unmount cleanup error:", e);
+        }
       }
     };
   }, []);

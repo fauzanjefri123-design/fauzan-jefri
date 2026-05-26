@@ -1,9 +1,11 @@
 import { doc, setDoc, collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import { safeJsonParse } from './utils';
 
 export interface SystemActivity {
   id: string;
   userId: string;       // User's email or UID
+  ownerId: string;   // Owner email or unique business anchor
   businessId: string;   // Owner email or unique business anchor
   role: string;         // 'Owner' | 'Employee'
   user: string;         // displayName or fullName
@@ -21,54 +23,53 @@ const subscribers = new Map<string, Set<ActivityCallback>>();
  */
 export function getCurrentUserContext() {
   const offlineUserStr = localStorage.getItem('offline_logged_in_user');
-  let email = 'fauzanjefri123@gmail.com';
-  let uid = 'offline_fauzanjefri123_gmail_com';
-  let username = 'Fauzan Jefri';
+  let email = '';
+  let uid = '';
+  let username = 'User';
   let role = 'Owner';
-  let businessId = 'fauzanjefri123_gmail_com';
+  let businessId = '';
 
-  if (offlineUserStr) {
-    try {
-      const u = JSON.parse(offlineUserStr);
-      email = u.email || email;
-      uid = u.uid || 'offline_' + email.replace(/[^a-zA-Z0-9]/g, '_');
-      role = u.role === 'Employee' || u.role === 'Karyawan' ? 'Employee' : 'Owner';
-      username = u.displayName || u.username || email.split('@')[0];
-    } catch (e) {
-      console.error("Error parsing logged in user context:", e);
-    }
-  } else if (auth.currentUser) {
-    email = auth.currentUser.email || email;
+  if (auth.currentUser) {
+    email = auth.currentUser.email || '';
     uid = auth.currentUser.uid;
     role = email.includes('karyawan') || email.includes('employee') ? 'Employee' : 'Owner';
-    username = auth.currentUser.displayName || email.split('@')[0];
+    username = auth.currentUser.displayName || (email ? email.split('@')[0] : 'User');
+    businessId = uid;
+  }
+
+  if (offlineUserStr) {
+    const u = safeJsonParse(offlineUserStr, null);
+    if (u) {
+      email = u.email || email;
+      uid = u.uid || uid;
+      role = u.role === 'Employee' || u.role === 'Karyawan' ? 'Employee' : role;
+      username = u.displayName || u.username || (email ? email.split('@')[0] : username);
+      businessId = u.businessId || businessId;
+    }
   }
 
   // If role is employee, customize username to employee profile full name if available
   if (role === 'Employee') {
     const empProfStr = localStorage.getItem('inmarket_employee_profile');
-    if (empProfStr) {
-      try {
-        const emp = JSON.parse(empProfStr);
-        username = emp.fullName || username;
-        if (emp.ownerEmail) {
-          businessId = emp.ownerEmail.replace(/[^a-zA-Z0-9]/g, '_');
-        }
-      } catch (e) {}
+    const emp = safeJsonParse(empProfStr, null);
+    if (emp) {
+      username = emp.fullName || username;
+      if (emp.ownerId) {
+        businessId = emp.ownerId;
+      } else if (emp.ownerEmail) {
+        businessId = emp.ownerEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      }
     }
   } else {
     // If owner, check if business profile has a custom ownerName
-    const bizKey = `inmarket_business_tenant_${email.replace(/[^a-zA-Z0-9]/g, '_')}_`;
-    const bizDataStr = localStorage.getItem(bizKey);
-    if (bizDataStr) {
-      try {
-        const bizData = JSON.parse(bizDataStr);
-        if (bizData.ownerName) {
-          username = bizData.ownerName;
-        }
-      } catch (e) {}
+    if (uid) {
+      const bizKey = `inmarket_business_tenant_${uid}_`;
+      const bizDataStr = localStorage.getItem(bizKey);
+      const bizData = safeJsonParse(bizDataStr, null);
+      if (bizData && bizData.ownerName) {
+        username = bizData.ownerName;
+      }
     }
-    businessId = email.replace(/[^a-zA-Z0-9]/g, '_');
   }
 
   // Capitalize name beautifier
@@ -79,7 +80,7 @@ export function getCurrentUserContext() {
       .join(' ');
   }
 
-  return { userId: email, uid, businessId, role, username };
+  return { userId: uid || email, uid: uid || email, businessId: businessId || uid || email, role, username };
 }
 
 /**
@@ -87,7 +88,7 @@ export function getCurrentUserContext() {
  */
 export function getActivitiesStorageKey(userId: string): string {
   const sanitizedId = userId.replace(/[^a-zA-Z0-9]/g, '_');
-  return `inmarket_activities_log_${sanitizedId}`;
+  return `activities_${auth.currentUser ? auth.currentUser.uid : sanitizedId}`;
 }
 
 /**
@@ -107,6 +108,7 @@ export function seedInitialUserActivities(userId: string, username: string) {
       {
         id: `act_init_1_${Date.now()}`,
         userId: userId,
+        ownerId: auth.currentUser ? auth.currentUser.uid : userId.replace(/[^a-zA-Z0-9]/g, '_'),
         businessId: userId.replace(/[^a-zA-Z0-9]/g, '_'),
         role: 'Owner',
         user: customName || 'Owner',
@@ -117,6 +119,7 @@ export function seedInitialUserActivities(userId: string, username: string) {
       {
         id: `act_init_2_${Date.now()}`,
         userId: userId,
+        ownerId: auth.currentUser ? auth.currentUser.uid : userId.replace(/[^a-zA-Z0-9]/g, '_'),
         businessId: userId.replace(/[^a-zA-Z0-9]/g, '_'),
         role: 'Owner',
         user: customName || 'Owner',
@@ -154,6 +157,7 @@ export async function logActivity(actionText: string, customUserContext?: any) {
   const act: SystemActivity = {
     id: `act_${timestamp.getTime()}_${Math.floor(Math.random() * 1000)}`,
     userId: context.userId,
+    ownerId: auth.currentUser ? auth.currentUser.uid : context.businessId,
     businessId: context.businessId,
     role: context.role,
     user: context.username,
@@ -181,13 +185,18 @@ export async function logActivity(actionText: string, customUserContext?: any) {
   // 2. Alert all active subscribers of this userId
   triggerLocalSubscribers(context.userId, localList);
 
-  // 3. Persist to Firestore if user is logged into Firebase
+  // 3. Debounced Persist to Firestore if user is logged into Firebase
   if (auth.currentUser && auth.currentUser.email === context.userId) {
-    try {
-      await setDoc(doc(db, 'activities', act.id), act);
-    } catch (fireErr) {
-      console.warn("Firestore activity sync delayed/offline:", fireErr);
+    if ((window as any)._activitySyncTimeout) {
+      clearTimeout((window as any)._activitySyncTimeout);
     }
+    (window as any)._activitySyncTimeout = setTimeout(() => {
+      try {
+        setDoc(doc(db, 'activities', act.id), act);
+      } catch (fireErr) {
+        console.warn("Firestore activity sync delayed/offline:", fireErr);
+      }
+    }, 2000); // Debounce network write by 2 seconds
   }
 }
 
@@ -246,7 +255,7 @@ export function subscribeToActivities(userId: string, callback: ActivityCallback
     try {
       const q = query(
         collection(db, 'activities'),
-        where('userId', '==', userId),
+        where('ownerId', '==', auth.currentUser.uid),
         orderBy('createdAt', 'desc'),
         limit(30)
       );

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { translations } from '../lib/translations';
 
 type Theme = 'light' | 'dark';
 type Language = 'id' | 'en';
@@ -11,6 +12,7 @@ type ThemeLanguageContextType = {
   toggleTheme: () => void;
   setLanguage: (lang: Language) => void;
   setStoreTheme: (theme: StoreTheme) => void;
+  t: (key: string) => string;
 };
 
 const ThemeLanguageContext = createContext<ThemeLanguageContextType | undefined>(undefined);
@@ -32,6 +34,12 @@ export const ThemeLanguageProvider: React.FC<{ children: React.ReactNode }> = ({
   const [storeTheme, setStoreThemeState] = useState<StoreTheme>(() => {
     return (localStorage.getItem('store_theme') as StoreTheme) || 'cyber_neon';
   });
+
+  // Translation function
+  const t = (key: string): string => {
+    const dict = translations[language] || translations.id;
+    return dict[key] || key;
+  };
 
   useEffect(() => {
     // If store theme is active, let's manage standard dark/light class mapping
@@ -62,7 +70,7 @@ export const ThemeLanguageProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   return (
-    <ThemeLanguageContext.Provider value={{ theme, language, storeTheme, toggleTheme, setLanguage, setStoreTheme }}>
+    <ThemeLanguageContext.Provider value={{ theme, language, storeTheme, toggleTheme, setLanguage, setStoreTheme, t }}>
       {children}
     </ThemeLanguageContext.Provider>
   );

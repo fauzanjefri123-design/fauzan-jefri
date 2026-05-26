@@ -9,14 +9,28 @@ import {
 } from 'lucide-react';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import { translations } from '../lib/translations';
-import { getPartitionedKey } from '../lib/utils';
+import { getPartitionedKey, safeJsonParse } from '../lib/utils';
 import SalesHistory from './SalesHistory';
 import Papa from 'papaparse';
+import QRCode from 'qrcode'; // Add this
 import { motion, AnimatePresence } from 'motion/react';
 import { playScanSound, playSuccessSound, playClickSound } from '../lib/sounds';
+import { z } from 'zod';
+import DOMPurify from 'dompurify';
 
-// Preset mock datasets to enrich the view if database is empty 
-const INITIAL_PRESETS = [
+const productSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  price: z.number().min(0, 'Price must be greater than or equal to 0'),
+  stock: z.number().min(0, 'Stock must be greater than or equal to 0'),
+  category: z.string(),
+  discount: z.number().min(0).max(100),
+  description: z.string().optional(),
+  barcode: z.string().optional(),
+  supplier: z.string().optional()
+});
+
+// Predefined samples for demo onboarding if needed
+const SAMPLE_PRODUCTS = [
   {
     name: "Kopi Gayo Premium Blend",
     price: 85000,
@@ -45,36 +59,6 @@ const INITIAL_PRESETS = [
     images: ["https://images.unsplash.com/photo-1581655353564-df123a1eb820?w=800&auto=format&fit=crop&q=80"],
     video: "",
     salesCount: 45,
-    createdAt: new Date().toISOString()
-  },
-  {
-    name: "Cokelat Lava Artisanal",
-    price: 45000,
-    stock: 0,
-    category: "Makanan",
-    discount: 0,
-    description: "Cokelat lava dengan isian cokelat Belgia murni cair yang meluap di setiap gigitan. Cocok disajikan hangat.",
-    barcode: "8994567890111",
-    supplier: "Belgian Sweet House",
-    variants: ["Original Dark", "Matcha Cream"],
-    images: ["https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=800&auto=format&fit=crop&q=80"],
-    video: "",
-    salesCount: 8,
-    createdAt: new Date().toISOString()
-  },
-  {
-    name: "Smart Watch Chronos X",
-    price: 799000,
-    stock: 12,
-    category: "Elektronik",
-    discount: 25,
-    description: "Jam tangan pintar futuristik dengan sensor pemantau kesehatan 24/7, layar AMOLED, dan ketahanan air hingga 5ATM.",
-    barcode: "8997788990112",
-    supplier: "Chronos Silicon Corp",
-    variants: ["Space Gray", "Cyber Silver"],
-    images: ["https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=800&auto=format&fit=crop&q=80"],
-    video: "",
-    salesCount: 19,
     createdAt: new Date().toISOString()
   }
 ];
@@ -146,6 +130,22 @@ export default function Inventory() {
     setTimeout(() => setNotification(null), 4000);
   };
 
+  // Load sample data for onboarding
+  const handleLoadSamples = () => {
+    const productsKey = getPartitionedKey('inmarket_products', true);
+    const existing = safeJsonParse(localStorage.getItem(productsKey), []);
+    const samplesWithIds = SAMPLE_PRODUCTS.map(p => ({
+      ...p,
+      id: 'sample_' + Math.random().toString(36).substr(2, 9),
+      ownerId: auth.currentUser?.uid || 'guest'
+    }));
+    const merged = [...samplesWithIds, ...existing];
+    localStorage.setItem(productsKey, JSON.stringify(merged));
+    fetchProducts();
+    playSuccessSound();
+    showNotification('success', 'Sample products loaded for demo purposes.');
+  };
+
   const fetchProducts = async () => {
     try {
       let fetched: any[] = [];
@@ -158,59 +158,23 @@ export default function Inventory() {
       // Load and merge local storage products for robust sandbox resilience
       const productsKey = getPartitionedKey('inmarket_products', true);
       const localProductsStr = localStorage.getItem(productsKey);
-      let localProducts: any[] = [];
-      if (localProductsStr) {
-        try {
-          localProducts = JSON.parse(localProductsStr);
-        } catch (e) {
-          console.error("Failed to parse local products, resetting");
-          localStorage.setItem(productsKey, '[]');
-        }
-      }
+      const localProducts = safeJsonParse(localProductsStr, []);
 
       // Merge and ensure no duplicates
       let merged = [...fetched];
-      localProducts.forEach(lp => {
+      localProducts.forEach((lp: any) => {
         if (!merged.some(p => p.id === lp.id || p.name.toLowerCase() === lp.name.toLowerCase())) {
           merged.push(lp);
         }
       });
-
-      // If absolutely empty first-time, populate with beautiful premium mock presets
-      if (merged.length === 0) {
-        const generatedPresets = INITIAL_PRESETS.map((p, index) => ({
-          id: 'preset_' + index + '_' + Date.now(),
-          ownerId: auth.currentUser?.uid || 'guest',
-          ...p,
-          desc: p.description,
-          photoUrl: p.images[0]
-        }));
-        localStorage.setItem(productsKey, JSON.stringify(generatedPresets));
-        merged = generatedPresets;
-      }
 
       setProducts(merged);
     } catch (firebaseErr) {
       console.warn("Firebase fetching failed, fallback to local storage products:", firebaseErr);
       const productsKey = getPartitionedKey('inmarket_products', true);
       const localProductsStr = localStorage.getItem(productsKey) || '[]';
-      try {
-        let merged = JSON.parse(localProductsStr);
-        if (merged.length === 0) {
-          const generatedPresets = INITIAL_PRESETS.map((p, index) => ({
-            id: 'preset_' + index + '_' + Date.now(),
-            ownerId: auth.currentUser?.uid || 'guest',
-            ...p,
-            desc: p.description,
-            photoUrl: p.images[0]
-          }));
-          localStorage.setItem(productsKey, JSON.stringify(generatedPresets));
-          merged = generatedPresets;
-        }
-        setProducts(merged);
-      } catch (err) {
-        setProducts([]);
-      }
+      const merged = safeJsonParse(localProductsStr, []);
+      setProducts(merged);
     }
   };
 
@@ -219,7 +183,27 @@ export default function Inventory() {
     playScanSound();
     const rand = "899" + Math.floor(1000000000 + Math.random() * 9000000000);
     setBarcode(rand);
-    showNotification('success', language === 'id' ? 'Barcode Laser Berhasil Dibuat!' : 'Laser Barcode Generated!');
+    showNotification('success', t('barcodeGenerated'));
+  };
+
+  const downloadQRCode = async (barcode: string, productName: string) => {
+    try {
+      const canvas = document.createElement('canvas');
+      await QRCode.toCanvas(canvas, barcode || '000000', { width: 400 });
+      const pngUrl = canvas.toDataURL('image/png');
+      
+      // Trigger download
+      const link = document.createElement('a');
+      link.href = pngUrl;
+      link.download = `QR_${productName.replace(/\s+/g, '_')}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      playSuccessSound();
+    } catch (err) {
+      console.error(err);
+      showNotification('error', 'Gagal membuat QR Code.');
+    }
   };
 
   // Image upload handler supporting automatic base64 reader
@@ -316,94 +300,116 @@ export default function Inventory() {
   // Add or Edit save implementation with full LocalStorage + Cloud synchronization
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !price || !stock) {
-      showNotification('error', language === 'id' ? 'Harap lengkapi Kolom Wajib (Nama, Harga, Stok)' : 'Please fill all mandatory fields (Name, Price, Stock)');
-      return;
-    }
-
-    const compiledImages: string[] = [];
-    if (photoFront) compiledImages.push(photoFront);
-    if (photoSide) compiledImages.push(photoSide);
-    if (photoDetail) compiledImages.push(photoDetail);
-
-    // Fallback to random stock illustration if no image is available
-    if (compiledImages.length === 0) {
-      compiledImages.push("https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80");
-    }
-
-    const payload = {
-      name,
-      price: Number(price),
-      stock: Number(stock),
-      category: category || 'Makanan',
-      discount: Number(discount) || 0,
-      description: description || '',
-      desc: description || '',
-      barcode: barcode || '',
-      supplier: supplier || '',
-      variants: variantsText ? variantsText.split(',').map(v => v.trim()).filter(Boolean) : [],
-      images: compiledImages,
-      photoUrl: compiledImages[0] || '',
-      video: videoUrl || '',
-      salesCount: editingProduct ? (editingProduct.salesCount || 0) : 0,
-      createdAt: editingProduct ? (editingProduct.createdAt || new Date().toISOString()) : new Date().toISOString()
-    };
 
     try {
-      if (auth.currentUser) {
-        if (editingProduct && !editingProduct.id.startsWith('preset_') && !editingProduct.id.startsWith('local_')) {
-          // Edit cloud product
-          await updateDoc(doc(db, 'products', editingProduct.id), payload);
-        } else if (!editingProduct) {
-          // Insert cloud product
-          await addDoc(collection(db, 'products'), {
-            ownerId: auth.currentUser.uid,
-            ...payload
-          });
-        }
-      }
-    } catch (e) {
-      console.warn("Unable to write product directly to database. Saving data to Local Vault instead.", e);
-    }
-
-    // Save locally 
-    const productsKey = getPartitionedKey('inmarket_products', true);
-    const currentLocalsStr = localStorage.getItem(productsKey) || '[]';
-    let currentLocals: any[] = [];
-    try {
-      currentLocals = JSON.parse(currentLocalsStr);
-    } catch { currentLocals = []; }
-
-    if (editingProduct) {
-      // Look and update in local array
-      currentLocals = currentLocals.map(lp => lp.id === editingProduct.id ? { ...lp, ...payload } : lp);
-      // If it had a cloud ID, keep local placeholder
-      if (!currentLocals.some(lp => lp.id === editingProduct.id)) {
-        currentLocals.push({ id: editingProduct.id, ownerId: auth.currentUser?.uid || 'guest', ...payload });
-      }
-    } else {
-      // Add new product
-      currentLocals.unshift({
-        id: 'local_' + Date.now(),
-        ownerId: auth.currentUser?.uid || 'guest',
-        ...payload
+      const sanitizedName = DOMPurify.sanitize(name);
+      const sanitizedDesc = DOMPurify.sanitize(description);
+      const sanitizedSupplier = DOMPurify.sanitize(supplier);
+      const sanitizedBarcode = DOMPurify.sanitize(barcode);
+      
+      productSchema.parse({
+        name: sanitizedName,
+        price: Number(price),
+        stock: Number(stock),
+        category: category || 'Makanan',
+        discount: Number(discount) || 0,
+        description: sanitizedDesc,
+        barcode: sanitizedBarcode,
+        supplier: sanitizedSupplier
       });
-    }
-    localStorage.setItem(productsKey, JSON.stringify(currentLocals));
+      
+      const compiledImages: string[] = [];
+      if (photoFront) compiledImages.push(photoFront);
+      if (photoSide) compiledImages.push(photoSide);
+      if (photoDetail) compiledImages.push(photoDetail);
 
-    // Reset forms
-    setName(''); setPrice(''); setStock(''); setCategory('Makanan'); setDiscount('0');
-    setDescription(''); setBarcode(''); setSupplier(''); setVariantsText('');
-    setPhotoFront(''); setPhotoSide(''); setPhotoDetail(''); setVideoUrl('');
-    setEditingProduct(null);
-    setIsAddingProduct(false);
-    fetchProducts();
-    playSuccessSound();
-    
-    showNotification('success', editingProduct 
-      ? (language === 'id' ? 'Produk berhasil diperbarui!' : 'Product updated successfully!') 
-      : (language === 'id' ? 'Produk baru ditambahkan!' : 'New product successfully added!')
-    );
+      // Fallback to random stock illustration if no image is available
+      if (compiledImages.length === 0) {
+        compiledImages.push("https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80");
+      }
+
+      const payload = {
+        name: sanitizedName,
+        price: Number(price),
+        stock: Number(stock),
+        category: category || 'Makanan',
+        discount: Number(discount) || 0,
+        description: sanitizedDesc,
+        desc: sanitizedDesc,
+        barcode: sanitizedBarcode,
+        supplier: sanitizedSupplier,
+        variants: variantsText ? variantsText.split(',').map(v => DOMPurify.sanitize(v.trim())).filter(Boolean) : [],
+        images: compiledImages,
+        photoUrl: compiledImages[0] || '',
+        video: videoUrl || '',
+        salesCount: editingProduct ? (editingProduct.salesCount || 0) : 0,
+        createdAt: editingProduct ? (editingProduct.createdAt || new Date().toISOString()) : new Date().toISOString()
+      };
+
+      // Strip out base64 images for Firestore to avoid WebChannel buffer errors
+      const cloudPayload = { ...payload };
+      cloudPayload.images = cloudPayload.images.map(img => img.length > 50000 ? "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80" : img);
+      cloudPayload.photoUrl = cloudPayload.photoUrl.length > 50000 ? "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80" : cloudPayload.photoUrl;
+
+      try {
+        if (auth.currentUser) {
+          if (editingProduct && !editingProduct.id.startsWith('preset_') && !editingProduct.id.startsWith('local_')) {
+            // Edit cloud product
+            await updateDoc(doc(db, 'products', editingProduct.id), cloudPayload);
+          } else if (!editingProduct) {
+            // Insert cloud product
+            await addDoc(collection(db, 'products'), {
+              ownerId: auth.currentUser.uid,
+              ...cloudPayload
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Unable to write product directly to database. Saving data to Local Vault instead.", e);
+      }
+
+      // Save locally 
+      const productsKey = getPartitionedKey('inmarket_products', true);
+      const currentLocalsStr = localStorage.getItem(productsKey) || '[]';
+      let currentLocals = safeJsonParse(currentLocalsStr, []);
+
+      if (editingProduct) {
+        // Look and update in local array
+        currentLocals = currentLocals.map((lp: any) => lp.id === editingProduct.id ? { ...lp, ...payload } : lp);
+        // If it had a cloud ID, keep local placeholder
+        if (!currentLocals.some((lp: any) => lp.id === editingProduct.id)) {
+          currentLocals.push({ id: editingProduct.id, ownerId: auth.currentUser?.uid || 'guest', ...payload });
+        }
+      } else {
+        // Add new product
+        currentLocals.unshift({
+          id: 'local_' + Date.now(),
+          ownerId: auth.currentUser?.uid || 'guest',
+          ...payload
+        });
+      }
+      localStorage.setItem(productsKey, JSON.stringify(currentLocals));
+
+      // Reset forms
+      setName(''); setPrice(''); setStock(''); setCategory('Makanan'); setDiscount('0');
+      setDescription(''); setBarcode(''); setSupplier(''); setVariantsText('');
+      setPhotoFront(''); setPhotoSide(''); setPhotoDetail(''); setVideoUrl('');
+      setEditingProduct(null);
+      setIsAddingProduct(false);
+      fetchProducts();
+      playSuccessSound();
+      
+      showNotification('success', editingProduct 
+        ? (language === 'id' ? 'Produk berhasil diperbarui!' : 'Product updated successfully!') 
+        : (language === 'id' ? 'Produk baru ditambahkan!' : 'New product successfully added!')
+      );
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        showNotification('error', error.issues[0].message);
+      } else {
+        showNotification('error', 'An error occurred during submission.');
+      }
+    }
   };
 
   // Trigger edit setup
@@ -449,7 +455,10 @@ export default function Inventory() {
       const parsed = JSON.parse(currentLocalsStr);
       const filtered = parsed.filter((lp: any) => lp.id !== p.id);
       localStorage.setItem(productsKey, JSON.stringify(filtered));
-    } catch {}
+    } catch (e) {
+      console.error("error during local deletion", e);
+      localStorage.setItem(productsKey, '[]');
+    }
 
     fetchProducts();
     playSuccessSound();
@@ -468,7 +477,7 @@ export default function Inventory() {
         const productsKey = getPartitionedKey('inmarket_products', true);
         const currentLocalsStr = localStorage.getItem(productsKey) || '[]';
         let currentLocals: any[] = [];
-        try { currentLocals = JSON.parse(currentLocalsStr); } catch {}
+        try { currentLocals = JSON.parse(currentLocalsStr); } catch (e) { console.error("error parsing csv storage", e); currentLocals = []; }
 
         for (const data of results.data as any[]) {
           const item = {
@@ -492,16 +501,24 @@ export default function Inventory() {
           };
           currentLocals.unshift(item);
 
-          // Try backup to Firebase
+          // Try backup to Firebase with size limit
           try {
             if (auth.currentUser) {
-              await addDoc(collection(db, 'products'), {
+              const cloudItem = {
                 ownerId: auth.currentUser.uid,
                 ...item,
                 id: undefined
-              });
+              };
+              // Simplified size check - Firestore limit is 1MB
+              if (JSON.stringify(cloudItem).length < 500000) {
+                 await addDoc(collection(db, 'products'), cloudItem);
+              } else {
+                 console.warn("Item too large to sync to cloud, skipping");
+              }
             }
-          } catch {}
+          } catch (e) {
+            console.error("Firebase write error:", e);
+          }
         }
         
         localStorage.setItem(productsKey, JSON.stringify(currentLocals));
@@ -543,34 +560,30 @@ export default function Inventory() {
     // Update in localStorage
     const productsKey = getPartitionedKey('inmarket_products', true);
     const currentLocalsStr = localStorage.getItem(productsKey) || '[]';
-    try {
-      const parsed = JSON.parse(currentLocalsStr);
-      const updated = parsed.map((lp: any) => lp.id === selectedProduct.id 
-        ? { ...lp, stock: newStock, salesCount: newSalesCount } 
-        : lp
-      );
-      localStorage.setItem(productsKey, JSON.stringify(updated));
-    } catch {}
+    const parsed = safeJsonParse(currentLocalsStr, []);
+    
+    const updated = parsed.map((lp: any) => lp.id === selectedProduct.id 
+      ? { ...lp, stock: newStock, salesCount: newSalesCount } 
+      : lp
+    );
+    localStorage.setItem(productsKey, JSON.stringify(updated));
 
     // Record manual adjustment to stock log
-    try {
-      const stockLogsKey = getPartitionedKey('inmarket_stock_logs', true);
-      const existingLogsStr = localStorage.getItem(stockLogsKey) || '[]';
-      const existingLogs = JSON.parse(existingLogsStr);
-      const newLog = {
-        id: 'log_' + Math.floor(Math.random() * 899999 + 100000),
-        productId: selectedProduct.id,
-        productName: selectedProduct.name,
-        type: isSell ? 'SALE' : 'RESTOCK',
-        qty: qty,
-        prevStock: selectedProduct.stock,
-        newStock: newStock,
-        timestamp: new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0') + ' ' + String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0')
-      };
-      localStorage.setItem(stockLogsKey, JSON.stringify([newLog, ...existingLogs]));
-    } catch (e) {
-      console.warn("Stock log warning", e);
-    }
+    const stockLogsKey = getPartitionedKey('inmarket_stock_logs', true);
+    const existingLogsStr = localStorage.getItem(stockLogsKey) || '[]';
+    const existingLogs = safeJsonParse(existingLogsStr, []);
+    
+    const newLog = {
+      id: 'log_' + Math.floor(Math.random() * 899999 + 100000),
+      productId: selectedProduct.id,
+      productName: selectedProduct.name,
+      type: isSell ? 'SALE' : 'RESTOCK',
+      qty: qty,
+      prevStock: selectedProduct.stock,
+      newStock: newStock,
+      timestamp: new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0') + ' ' + String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0')
+    };
+    localStorage.setItem(stockLogsKey, JSON.stringify([newLog, ...existingLogs]));
 
     // Insert sales metrics
     if (isSell) {
@@ -604,7 +617,9 @@ export default function Inventory() {
           cashier: auth.currentUser?.email || 'Offline Cashier'
         });
         localStorage.setItem('local_sales_history', JSON.stringify(sales));
-      } catch {}
+      } catch (e) {
+        console.error("error parsing sales history", e);
+      }
     }
 
     fetchProducts();
@@ -696,7 +711,7 @@ export default function Inventory() {
                 : 'text-slate-400 hover:text-slate-100'
             }`}
           >
-            <History size={14}/> {language === 'id' ? 'Riwayat Kasir' : 'Sales History'}
+            <History size={14}/> {t('salesHistory')}
           </button>
         </div>
       </div>
@@ -714,7 +729,7 @@ export default function Inventory() {
               <div className="flex gap-3.5 items-start">
                 <AlertCircle className="text-rose-500 shrink-0 mt-0.5 animate-bounce" size={20} />
                 <div>
-                  <h3 className="text-sm font-black text-rose-400 uppercase tracking-wider">{language === 'id' ? 'DIAGNOSTIK: STOK MINIMAL TERDETEKSI' : 'DIAGNOSTICS: LOW PRODUCT RESERVES'}</h3>
+                  <h3 className="text-sm font-black text-rose-400 uppercase tracking-wider">{t('diagnosticsLowStock')}</h3>
                   <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
                     {language === 'id' 
                       ? `${lowStockProducts.map(p => p.name).join(', ')} hampir habis dari etalase. Harap segera restock item tersebut.`
@@ -732,7 +747,7 @@ export default function Inventory() {
                 }}
                 className="px-4.5 py-2.5 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-200 text-xs font-black tracking-wider uppercase rounded-xl transition-all cursor-pointer"
               >
-                {language === 'id' ? 'Periksa Stok' : 'Audit Items'}
+                {t('auditItems')}
               </button>
             </motion.div>
           )}
@@ -791,7 +806,7 @@ export default function Inventory() {
                   : 'bg-[#120B1D]/45 border-white/5 text-slate-400 hover:text-slate-100'
               }`}
             >
-              🚀 {language === 'id' ? 'Semua Kategori' : 'All Categories'}
+              🚀 {t('allCategories')}
             </button>
             {categories.map((cat) => (
               <button
@@ -826,8 +841,8 @@ export default function Inventory() {
                     <Sparkles className="text-violet-400 animate-spin-slow" size={18} />
                     <h2 className="text-lg md:text-xl font-black uppercase tracking-wider text-slate-100">
                       {editingProduct 
-                        ? (language === 'id' ? 'UBAH DATA PRODUK PREMIUM' : 'EDIT PREMIUM PRODUCT SHEETS') 
-                        : (language === 'id' ? 'TAMBAH PRODUK BARU' : 'REGISTER NEW ASSET UNIT')}
+                        ? t('editPremiumProduct')
+                        : t('addPremiumProduct')}
                     </h2>
                   </div>
                   <button 
@@ -856,7 +871,7 @@ export default function Inventory() {
                       activeFormTab === 'media' ? 'bg-white/10 text-cyan-300 shadow-inner' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <ImageIcon size={12} /> Media Slots
+                    <ImageIcon size={12} /> {t('mediaSlots')}
                   </button>
                   <button 
                     type="button" 
@@ -865,7 +880,7 @@ export default function Inventory() {
                       activeFormTab === 'extra' ? 'bg-white/10 text-cyan-300 shadow-inner' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <Sliders size={12} /> Meta Tags
+                    <Sliders size={12} /> {t('metaTags')}
                   </button>
                 </div>
 
@@ -1375,9 +1390,42 @@ export default function Inventory() {
           </AnimatePresence>
 
           {/* FUTURISTIC MARKETPLACE GRID LAYOUT (Bento inspired, Tokopedia Premium aesthetic) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            <AnimatePresence>
-              {filteredProducts.map(p => {
+          {filteredProducts.length === 0 ? (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-white/5 rounded-[40px] bg-white/5 backdrop-blur-xl group hover:border-violet-500/20 transition-all"
+            >
+              <div className="w-24 h-24 rounded-full bg-violet-600/10 flex items-center justify-center mb-6 ring-4 ring-violet-500/5 group-hover:scale-110 transition-transform">
+                <Package size={48} className="text-violet-400 opacity-60" />
+              </div>
+              <h3 className="text-xl font-black text-white mb-2 tracking-tight">
+                {language === 'id' ? 'Belum Ada Produk' : 'No Products Found'}
+              </h3>
+              <p className="text-slate-400 text-sm max-w-xs text-center leading-relaxed mb-8">
+                {language === 'id' 
+                  ? 'Mulai inventaris bisnis Anda dengan menambahkan produk pertama sekarang juga.' 
+                  : 'Kickstart your business inventory by adding your first product now.'}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <button 
+                  onClick={() => { playClickSound(); setIsAddingProduct(true); setEditingProduct(null); }}
+                  className="px-8 py-3.5 bg-gradient-to-r from-violet-600 to-cyan-500 text-white text-xs font-black tracking-widest uppercase rounded-2xl shadow-lg hover:shadow-violet-500/25 transition-all active:scale-95"
+                >
+                  <Plus size={16} className="inline mr-2" /> {t('addProduct')}
+                </button>
+                <button 
+                  onClick={handleLoadSamples}
+                  className="px-8 py-3.5 bg-white/5 border border-white/10 text-slate-300 text-xs font-black tracking-widest uppercase rounded-2xl hover:bg-white/10 transition-all"
+                >
+                  <RefreshCw size={14} className="inline mr-2" /> {language === 'id' ? 'Coba Data Contoh' : 'Try Sample Data'}
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              <AnimatePresence>
+                {filteredProducts.map(p => {
                 const status = getStockStatus(p.stock);
                 const discountAmount = Number(p.discount) || 0;
                 const hasDiscount = discountAmount > 0;
@@ -1560,6 +1608,12 @@ export default function Inventory() {
                       {/* TRASH & EDIT ACCESS SYSTEM */}
                       <div className="flex gap-1.5 pt-1">
                         <button 
+                          onClick={() => downloadQRCode(p.barcode, p.name)}
+                          className="flex-1 py-1.5 bg-violet-900/40 hover:bg-violet-800 rounded-lg text-violet-300 text-[10px] font-bold tracking-wider uppercase flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Barcode size={10}/> QR
+                        </button>
+                        <button 
                           onClick={() => fillEditProduct(p)}
                           className="flex-1 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-300 text-[10px] font-bold tracking-wider uppercase flex items-center justify-center gap-1 cursor-pointer"
                         >
@@ -1594,6 +1648,7 @@ export default function Inventory() {
               })}
             </AnimatePresence>
           </div>
+          )}
         </>
       ) : (
         <SalesHistory />
@@ -1798,8 +1853,13 @@ export default function Inventory() {
                 <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                   {(() => {
                     const stockLogsKey = getPartitionedKey('inmarket_stock_logs', true);
-                    const allLogs = JSON.parse(localStorage.getItem(stockLogsKey) || '[]');
-                    const filteredLogs = allLogs.filter((log: any) => log.productId === selectedProductForLog.id);
+                    let allLogs = [];
+                    try {
+                      allLogs = JSON.parse(localStorage.getItem(stockLogsKey) || '[]');
+                    } catch {
+                      allLogs = [];
+                    }
+                    const filteredLogs = Array.isArray(allLogs) ? allLogs.filter((log: any) => log.productId === selectedProductForLog.id) : [];
                     
                     if (filteredLogs.length === 0) {
                       return (

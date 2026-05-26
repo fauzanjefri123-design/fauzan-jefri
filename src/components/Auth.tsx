@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '../lib/firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { cn } from '../lib/utils';
+import { doc, setDoc, getDoc } from 'firebase/firestore';                // Added
+import { db } from '../lib/firebase';                               // Added
+import { cn, safeJsonParse } from '../lib/utils';
 import { logActivity, seedInitialUserActivities } from '../lib/activities';
 import { 
   Loader2, 
@@ -38,7 +40,7 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'Owner' | 'Employee' | ''>('');
+  const [role, setRole] = useState<'Owner' | 'Employee' | 'Guest' | ''>('Owner');
   const [isLoading, setIsLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +49,40 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
   const [showPassword, setShowPassword] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [localModePrompt, setLocalModePrompt] = useState(false);
+  const [ownerIdInput, setOwnerIdInput] = useState('');
+  const [ownerIdInputFocused, setOwnerIdInputFocused] = useState(false);
+
+  const handleGuestDemoBypass = () => {
+    setError(null);
+    setIsLoading(true);
+    playScanSound();
+
+    const simulatedUser = {
+      uid: 'demo_guest_user',
+      email: 'demo_guest@inmarket.com',
+      displayName: 'Demo Guest',
+      role: 'Guest',
+      businessId: 'bus_demo',
+      ownerId: 'demo_owner'
+    };
+
+    localStorage.setItem('offline_logged_in_user', JSON.stringify(simulatedUser));
+    localStorage.setItem('inmarket_user_role', 'Guest');
+
+    // Seed activities for demo
+    seedInitialUserActivities('demo_guest@inmarket.com', 'Demo Guest');
+
+    setTimeout(() => {
+      setIsLoading(false);
+      setIsScanning(true);
+      playSuccessSound();
+      
+      setTimeout(() => {
+        setIsScanning(false);
+        onNavigate('dashboard');
+      }, 1500);
+    }, 800);
+  };
 
   // Advanced Registration and Auth Recovery states
   const [username, setUsername] = useState('');
@@ -153,7 +189,7 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
       uid: 'offline_' + mockEmail.replace(/[^a-zA-Z0-9]/g, '_'),
       email: mockEmail,
       displayName: mockEmail.split('@')[0],
-      role: mockRole
+      role: mockRole === 'Owner' ? 'Owner' : 'Employee'
     };
 
     localStorage.setItem('local_user_' + mockEmail, JSON.stringify({ email: mockEmail, password: password || '123456', role: mockRole }));
@@ -201,6 +237,11 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
       return;
     }
 
+    if (role === 'Guest') {
+      handleGuestDemoBypass();
+      return;
+    }
+
     if (!email) {
       setError(language === 'id' ? 'Email wajib diisi.' : 'Email is required.');
       return;
@@ -243,7 +284,13 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
         return;
       }
 
-      // 4. Role check
+      // 4. Validate Code Owner if Employee Mode
+      if (role === 'Employee' && !ownerIdInput.trim()) {
+        setError(language === 'id' ? 'Email Owner / Kode Bisnis wajib diisi bagi peran Karyawan.' : 'Owner Email / Business Code is required for Employee registration.');
+        return;
+      }
+
+      // 5. Role check
       if (!role) {
         setError(language === 'id' ? 'Silakan pilih peran akun (role).' : 'Please select an account role.');
         return;
@@ -258,42 +305,49 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
           // Attempt default Firebase authentication
           await signInWithEmailAndPassword(auth, email, password);
           
-          // If successful, save local cache as owner (default) unless cached otherwise
-          const cachedUser = localStorage.getItem('local_user_' + email);
-          let loadedUsername = email.split('@')[0];
-          let loadedRole = 'Owner';
-          if (!cachedUser) {
-            localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role: 'Owner', username: email.split('@')[0], phone: '08123456789' }));
-          } else {
-            // Restore potential simulated offline logged session
-            const userObj = JSON.parse(cachedUser);
-            loadedUsername = userObj.username || loadedUsername;
-            loadedRole = userObj.role || loadedRole;
+          if (auth.currentUser) {
+            // Retrieve dynamic configuration from database
+            const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+            let dbRole = 'Owner';
+            let businessId = 'bus_' + auth.currentUser.uid;
+            let ownerId = auth.currentUser.uid;
+            
+            if (userDoc.exists()) {
+              const data = userDoc.data();
+              dbRole = data.role === 'owner' ? 'Owner' : (data.role === 'employee' ? 'Employee' : 'Guest');
+              businessId = data.businessId || businessId;
+              ownerId = data.ownerId || ownerId;
+            }
+            
+            // Critical fix: ensure local cache matches the database role exactly
+            localStorage.setItem('inmarket_user_role', dbRole);
             localStorage.setItem('offline_logged_in_user', JSON.stringify({
-              uid: 'simulated_' + email.replace(/[^a-zA-Z0-9]/g, '_'),
-              email,
-              displayName: userObj.username || email.split('@')[0],
-              role: userObj.role
+              uid: auth.currentUser.uid,
+              email: email,
+              displayName: auth.currentUser.displayName || email.split('@')[0],
+              role: dbRole,
+              businessId: businessId,
+              ownerId: ownerId
             }));
+
+            // Seed activities + Log activity
+            seedInitialUserActivities(email, auth.currentUser.displayName || email.split('@')[0]);
+            logActivity('Pengguna berhasil masuk (login) ke platform InMarket.id', {
+              userId: email,
+              businessId: businessId,
+              role: dbRole,
+              username: auth.currentUser.displayName || email.split('@')[0]
+            });
+
+            setSuccess(language === 'id' ? 'Otorisasi Berhasil. Memindai data diri...' : 'Authorization Successful. Scanning profile...');
+            setIsScanning(true);
+            playSuccessSound();
+
+            setTimeout(() => {
+              setIsScanning(false);
+              onNavigate('dashboard');
+            }, 1500);
           }
-
-          // Seed activities if brand new + Log Login activity
-          seedInitialUserActivities(email, loadedUsername);
-          logActivity('Pengguna berhasil masuk (login) ke platform InMarket.id', {
-            userId: email,
-            businessId: email.replace(/[^a-zA-Z0-9]/g, '_'),
-            role: loadedRole,
-            username: loadedUsername
-          });
-
-          setSuccess(language === 'id' ? 'Otorisasi Berhasil. Memindai data diri...' : 'Authorization Successful. Scanning profile...');
-          setIsScanning(true);
-          playSuccessSound();
-
-          setTimeout(() => {
-            setIsScanning(false);
-            onNavigate('dashboard');
-          }, 2000);
 
         } catch (firebaseErr: any) {
           const errCode = firebaseErr?.code || '';
@@ -309,36 +363,42 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
           
           // Test local offline vault matching
           const cachedUserStr = localStorage.getItem('local_user_' + email);
-          if (cachedUserStr) {
-            const cachedUser = JSON.parse(cachedUserStr);
-            if (cachedUser.password === password) {
-              const simulatedUser = {
-                uid: 'offline_' + email.replace(/[^a-zA-Z0-9]/g, '_'),
-                email: email,
-                displayName: cachedUser.username || email.split('@')[0],
-                role: cachedUser.role
-              };
-              localStorage.setItem('offline_logged_in_user', JSON.stringify(simulatedUser));
-              
-              // Seed activities if brand new + Log Login activity
-              seedInitialUserActivities(email, cachedUser.username || email.split('@')[0]);
-              logActivity('Pengguna berhasil masuk (login) ke platform InMarket.id', {
-                userId: email,
-                businessId: email.replace(/[^a-zA-Z0-9]/g, '_'),
-                role: cachedUser.role,
-                username: cachedUser.username || email.split('@')[0]
-              });
-              
-              setSuccess(language === 'id' ? 'Koneksi Terkompres (Mode Offline). Memindai...' : 'Compressed Link Established (Offline Mode). Scanning...');
-              setIsScanning(true);
-              playSuccessSound();
+          const cachedUser = safeJsonParse(cachedUserStr, null);
+          
+          if (cachedUser && cachedUser.password === password) {
+            const mappedRole = cachedUser.role || 'Owner';
+            const secureOwnerId = cachedUser.ownerId || (mappedRole === 'Employee' ? 'owner_offline_default' : 'offline_' + email.replace(/[^a-zA-Z0-9]/g, '_'));
+            const secureBusinessId = cachedUser.businessId || 'bus_offline_' + secureOwnerId;
 
-              setTimeout(() => {
-                setIsScanning(false);
-                onNavigate('dashboard');
-              }, 2000);
-              return;
-            }
+            const simulatedUser = {
+              uid: 'offline_' + email.replace(/[^a-zA-Z0-9]/g, '_'),
+              email: email,
+              displayName: cachedUser.username || email.split('@')[0],
+              role: mappedRole,
+              businessId: secureBusinessId,
+              ownerId: secureOwnerId
+            };
+            localStorage.setItem('offline_logged_in_user', JSON.stringify(simulatedUser));
+            localStorage.setItem('inmarket_user_role', mappedRole);
+              
+            // Seed activities if brand new + Log Login activity
+            seedInitialUserActivities(email, cachedUser.username || email.split('@')[0]);
+            logActivity('Pengguna berhasil masuk (login) ke platform InMarket.id', {
+              userId: email,
+              businessId: secureBusinessId,
+              role: mappedRole,
+              username: cachedUser.username || email.split('@')[0]
+            });
+              
+            setSuccess(language === 'id' ? 'Koneksi Terkompres (Mode Offline). Memindai...' : 'Compressed Link Established (Offline Mode). Scanning...');
+            setIsScanning(true);
+            playSuccessSound();
+
+            setTimeout(() => {
+              setIsScanning(false);
+              onNavigate('dashboard');
+            }, 1500);
+            return;
           }
 
           // Offer offline sandbox bypass if network request fails or API key errors
@@ -355,10 +415,44 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
           const userCredential = await createUserWithEmailAndPassword(auth, email, password);
           if (userCredential.user) {
             await updateProfile(userCredential.user, { displayName: username });
+            
+            // Build businessId and ownerId
+            const mappedRole = role === 'Owner' ? 'owner' : (role === 'Employee' ? 'employee' : 'guest');
+            let secureOwnerId = userCredential.user.uid;
+            if (role === 'Employee') {
+              secureOwnerId = ownerIdInput.trim() ? 'owner_' + ownerIdInput.replace(/[^a-zA-Z0-9]/g, '_') : 'owner_shared';
+            }
+            const secureBusinessId = 'bus_' + secureOwnerId;
+
+            await setDoc(doc(db, 'users', userCredential.user.uid), {
+              email,
+              role: mappedRole,
+              ownerId: secureOwnerId,
+              businessId: secureBusinessId,
+              createdAt: new Date()
+            });
+
+            // Save locally with complete inputs
+            localStorage.setItem('local_user_' + email, JSON.stringify({ 
+              email, 
+              password, 
+              role, 
+              username, 
+              phone,
+              ownerId: secureOwnerId,
+              businessId: secureBusinessId
+            }));
+            
+            localStorage.setItem('offline_logged_in_user', JSON.stringify({
+              uid: userCredential.user.uid,
+              email,
+              displayName: username,
+              role,
+              businessId: secureBusinessId,
+              ownerId: secureOwnerId
+            }));
+            localStorage.setItem('inmarket_user_role', role);
           }
-          
-          // Save locally with complete inputs
-          localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role, username, phone }));
           
           // Seed activities for the brand new user immediately
           seedInitialUserActivities(email, username);
@@ -368,7 +462,7 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
           setResendCountdown(30);
           setSuccess(language === 'id' 
             ? 'Pendaftaran sukses! Tautan verifikasi telah diarahkan ke email Anda.' 
-            : 'Registered successfully! Tautan verification link has been dispatched to your email.');
+            : 'Registered successfully! Verification link has been dispatched to your email.');
           playSuccessSound();
 
         } catch (firebaseErr: any) {
@@ -390,8 +484,35 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
           console.warn("Register network/sandbox error, falling back to offline storage:", firebaseErr);
           setIsNetworkError(true);
           
+          const mappedRole = role === 'Owner' ? 'owner' : (role === 'Employee' ? 'employee' : 'guest');
+          let secureOwnerId = 'owner_offline_default';
+          if (role === 'Employee') {
+            secureOwnerId = ownerIdInput.trim() ? 'owner_' + ownerIdInput.replace(/[^a-zA-Z0-9]/g, '_') : 'owner_shared';
+          } else if (role === 'Owner') {
+            secureOwnerId = 'owner_offline_' + email.replace(/[^a-zA-Z0-9]/g, '_');
+          }
+          const secureBusinessId = 'bus_offline_' + secureOwnerId;
+
           // Save locally
-          localStorage.setItem('local_user_' + email, JSON.stringify({ email, password, role, username, phone }));
+          localStorage.setItem('local_user_' + email, JSON.stringify({ 
+            email, 
+            password, 
+            role, 
+            username, 
+            phone,
+            ownerId: secureOwnerId,
+            businessId: secureBusinessId
+          }));
+          
+          localStorage.setItem('offline_logged_in_user', JSON.stringify({
+            uid: 'offline_' + email.replace(/[^a-zA-Z0-9]/g, '_'),
+            email,
+            displayName: username,
+            role,
+            businessId: secureBusinessId,
+            ownerId: secureOwnerId
+          }));
+          localStorage.setItem('inmarket_user_role', role);
           
           // Seed activities for the brand new user immediately
           seedInitialUserActivities(email, username);
@@ -529,7 +650,7 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
               }
             </h2>
             <p className={cn("text-xs mt-1.5 font-bold tracking-wider font-mono", theme === 'light' ? "text-slate-500" : "text-violet-300/60")}>
-              {verificationPending ? 'SECURE ACCOUNT ACTIVATION' : isResetMode ? 'SECURITY KEY RECOVERY' : 'INMARKET SECURE LEDGER SYSTEM'}
+              {verificationPending ? (language === 'id' ? 'AKTIVASI AKUN AMAN' : 'SECURE ACCOUNT ACTIVATION') : isResetMode ? (language === 'id' ? 'PEMULIHAN KUNCI KEAMANAN' : 'SECURITY KEY RECOVERY') : (language === 'id' ? 'SISTEM LEDGER AMAN INMARKET' : 'INMARKET SECURE LEDGER SYSTEM')}
             </p>
           </div>
 
@@ -762,322 +883,280 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
             ) : (
               // STANDARD REGISTER AND LOGIN FIELDS
               <>
-                {/* Username Input Field (Only in Register mode) */}
-                {!isLogin && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="relative"
-                  >
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
-                      <User size={18} className={cn(usernameFocused && "text-violet-500")} />
-                    </div>
-                    <input 
-                      type="text" 
-                      value={username}
-                      placeholder={language === 'id' ? "Nama Pengguna Unik" : "Unique Username"}
-                      onFocus={() => setUsernameFocused(true)}
-                      onBlur={() => setUsernameFocused(false)}
-                      onChange={e => setUsername(e.target.value)}
-                      className={cn(
-                        "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
-                        theme === 'light' 
-                          ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
-                          : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
-                      )}
-                    />
-                  </motion.div>
-                )}
-
-                {/* Email input block */}
-                <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
-                    <Mail size={18} className={cn(emailFocused && "text-violet-500 dark:text-violet-400")} />
+                {/* MODERN ROLE SELECTOR GRID */}
+                <div className="space-y-3 mb-6">
+                  <label className={cn("flex justify-between items-center text-[10px] font-black tracking-widest uppercase mb-1", theme === 'light' ? "text-slate-500" : "text-violet-400")}>
+                    <span>{language === 'id' ? 'PILIH OTORISASI PERAN' : 'SELECT ROLE AUTHENTICATION'}</span>
+                    <span className="flex items-center gap-1 text-[8px] text-cyan-400 font-mono tracking-normal bg-cyan-950/35 border border-cyan-400/20 px-1.5 py-0.5 rounded-[4px]">
+                      SECURE_GATE_V2
+                    </span>
+                  </label>
+                  
+                  <div className="grid grid-cols-1 gap-2.5 font-sans">
+                    {[
+                      {
+                        id: 'Owner' as const,
+                        title: language === 'id' ? 'Owner / Pemilik Bisnis 👑' : 'Owner / Business Boss 👑',
+                        subtitle: 'SYS_ADMIN',
+                        desc: language === 'id' ? 'Akses penuh mengelola cabang, inventaris, keuangan, karyawan & AI' : 'Full system privileges for branches, stock, finance, staff & AI',
+                        color: 'from-amber-600/35 to-amber-950/20 border-amber-500/50 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
+                      },
+                      {
+                        id: 'Employee' as const,
+                        title: language === 'id' ? 'Karyawan / Staff Cabang 👥' : 'Employee / Branch Staff 👥',
+                        subtitle: 'SYS_STAFF',
+                        desc: language === 'id' ? 'Melakukan absensi QR, mengoperasikan kasir, chat, agenda & ranking' : 'Perform QR attendance, operate cashier, team chat, agenda & rankings',
+                        color: 'from-cyan-600/35 to-cyan-950/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
+                      },
+                      {
+                        id: 'Guest' as const,
+                        title: language === 'id' ? 'Demo / Penjelajah Guest 🌟' : 'Demo / Guest Visitor 🌟',
+                        subtitle: 'SYS_GUEST',
+                        desc: language === 'id' ? 'Eksplorasi simulator dashboard secara instan offline tanpa daftar akun' : 'Explore simulated read-only dashboard instantly offline with no registration',
+                        color: 'from-fuchsia-600/35 to-fuchsia-950/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.25)]'
+                      }
+                    ].map((card) => {
+                      const isSelected = role === card.id;
+                      return (
+                        <motion.div
+                          key={card.id}
+                          whileHover={{ scale: 1.015 }}
+                          whileTap={{ scale: 0.985 }}
+                          onClick={() => {
+                            playScanSound();
+                            setRole(card.id);
+                            setError(null);
+                            setSuccess(null);
+                          }}
+                          className={cn(
+                            "p-3.5 rounded-2xl border text-left transition-all duration-300 relative overflow-hidden cursor-pointer",
+                            isSelected 
+                              ? `bg-gradient-to-r ${card.color} border-current ring-1 ring-violet-500/30` 
+                              : "bg-slate-900/40 hover:bg-slate-900/70 border-white/10 text-slate-400 hover:text-slate-200"
+                          )}
+                        >
+                          {isSelected && (
+                            <>
+                              <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t-2 border-l-2 border-white/80" />
+                              <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b-2 border-r-2 border-white/80" />
+                            </>
+                          )}
+                          <div className="flex justify-between items-start mb-1 relative z-10">
+                            <span className="text-xs font-black uppercase tracking-wider block">{card.title}</span>
+                            <span className="text-[8px] font-mono opacity-80 uppercase tracking-widest bg-black/40 px-1 py-0.5 rounded">{card.subtitle}</span>
+                          </div>
+                          <p className="text-[10px] opacity-75 leading-relaxed relative z-10 font-bold font-sans">
+                            {card.desc}
+                          </p>
+                        </motion.div>
+                      );
+                    })}
                   </div>
-                  <input 
-                    type="email" 
-                    value={email}
-                    placeholder={t('emailPlaceholder')}
-                    onFocus={() => setEmailFocused(true)}
-                    onBlur={() => setEmailFocused(false)}
-                    onChange={e => setEmail(e.target.value)}
-                    className={cn(
-                      "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
-                      theme === 'light' 
-                        ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
-                        : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
-                    )}
-                    style={{
-                      boxShadow: emailFocused && theme === 'dark' ? '0 0 15px rgba(139,92,246,0.25)' : ''
-                    }}
-                  />
                 </div>
 
-                {/* Handphone Phone input block (Only in Register mode) */}
-                {!isLogin && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="relative"
+                {role === 'Guest' ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="p-4 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-2xl text-center space-y-2.5 mb-4 font-sans"
                   >
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
-                      <Smartphone size={18} className={cn(phoneFocused && "text-violet-500")} />
+                    <div className="inline-flex p-2 rounded-xl bg-fuchsia-500/20 text-fuchsia-400">
+                      <Sparkles size={18} className="animate-pulse" />
                     </div>
-                    <input 
-                      type="text" 
-                      value={phone}
-                      placeholder={language === 'id' ? "Nomor Handphone Terdaftar" : "Registered Phone No."}
-                      onFocus={() => setPhoneFocused(true)}
-                      onBlur={() => setPhoneFocused(false)}
-                      onChange={e => setPhone(e.target.value)}
-                      className={cn(
-                        "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
-                        theme === 'light' 
-                          ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
-                          : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
-                      )}
-                    />
+                    <h3 className="text-sm font-black text-fuchsia-300 tracking-wide uppercase">
+                      {language === 'id' ? 'MODE GUEST DEMO AKTIF' : 'GUEST DEMO MODE ACTIVE'}
+                    </h3>
+                    <p className="text-[11px] leading-relaxed text-slate-300">
+                      {language === 'id' 
+                        ? 'Anda akan dialihkan langsung ke dashboard simulasi offline. Seluruh data transaksi, keuangan, dan stok akan disimulasikan secara lokal untuk kemudahan demonstrasi tanpa menyentuh database utama.' 
+                        : 'You will bypass authentication and enter our offline sandbox environment directly. Try complete dashboard analytics and checkout flows securely.'}
+                    </p>
+                    <div className="pt-1.5 border-t border-fuchsia-500/20 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playScanSound();
+                          setRole('Owner');
+                          setError(null);
+                          setSuccess(null);
+                        }}
+                        className="text-[10px] uppercase font-black tracking-widest text-fuchsia-400 hover:text-white flex items-center justify-center gap-1.5 mx-auto hover:underline cursor-pointer"
+                      >
+                        <ArrowLeft size={12} />
+                        {language === 'id' ? 'KEMBALI KE LOGIN OTORITAS' : 'BACK TO CREDENTIALS LOGIN'}
+                      </button>
+                    </div>
                   </motion.div>
-                )}
-
-                {/* Password input block */}
-                <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
-                    <Lock size={18} className={cn(passwordFocused && "text-violet-500 dark:text-violet-400")} />
-                  </div>
-                  <input 
-                    type={showPassword ? "text" : "password"} 
-                    value={password}
-                    placeholder={t('passwordPlaceholder')}
-                    onFocus={() => setPasswordFocused(true)}
-                    onBlur={() => setPasswordFocused(false)}
-                    onChange={e => setPassword(e.target.value)}
-                    className={cn(
-                      "w-full py-4 pl-12 pr-12 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
-                      theme === 'light' 
-                        ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
-                        : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                ) : (
+                  <div className="space-y-4">
+                    {/* Username Input Field (Only in Register mode) */}
+                    {!isLogin && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="relative"
+                      >
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                          <User size={18} className={cn(usernameFocused && "text-violet-500")} />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={username}
+                          placeholder={language === 'id' ? "Nama Pengguna Unik" : "Unique Username"}
+                          onFocus={() => setUsernameFocused(true)}
+                          onBlur={() => setUsernameFocused(false)}
+                          onChange={e => setUsername(e.target.value)}
+                          className={cn(
+                            "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                            theme === 'light' 
+                              ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                              : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                          )}
+                        />
+                      </motion.div>
                     )}
-                    style={{
-                      boxShadow: passwordFocused && theme === 'dark' ? '0 0 15px rgba(139,92,246,0.25)' : ''
-                    }}
-                  />
-                  <button 
-                    type="button" 
-                    tabIndex={-1}
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors p-1"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
 
-                {/* Login recovery links and persistence checkboxes */}
-                {isLogin && (
-                  <div className="flex items-center justify-between px-1 text-xs font-bold text-slate-500 dark:text-violet-300/70">
-                    <label className="flex items-center gap-2 cursor-pointer group hover:text-violet-500 dark:hover:text-white transition-colors">
+                    {/* Email input block */}
+                    <div className="relative">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                        <Mail size={18} className={cn(emailFocused && "text-violet-500 dark:text-violet-400")} />
+                      </div>
                       <input 
-                        type="checkbox" 
-                        defaultChecked
-                        className="rounded border-slate-300 dark:border-white/10 bg-transparent text-violet-600 focus:ring-violet-500 cursor-pointer h-4 w-4" 
+                        type="email" 
+                        value={email}
+                        placeholder={t('emailPlaceholder')}
+                        onFocus={() => setEmailFocused(true)}
+                        onBlur={() => setEmailFocused(false)}
+                        onChange={e => setEmail(e.target.value)}
+                        className={cn(
+                          "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                          theme === 'light' 
+                            ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                            : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                        )}
+                        style={{
+                          boxShadow: emailFocused && theme === 'dark' ? '0 0 15px rgba(139,92,246,0.25)' : ''
+                        }}
                       />
-                      <span>{language === 'id' ? 'Ingat Saya' : 'Remember Me'}</span>
-                    </label>
+                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsResetMode(true);
-                        setError(null);
-                        setSuccess(null);
-                      }}
-                      className="hover:underline hover:text-violet-500 dark:hover:text-white transition-colors"
-                    >
-                      {language === 'id' ? 'Lupa Sandi?' : 'Forgot Password?'}
-                    </button>
+                    {/* Handphone Phone input block (Only in Register mode) */}
+                    {!isLogin && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="relative"
+                      >
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                          <Smartphone size={18} className={cn(phoneFocused && "text-violet-500")} />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={phone}
+                          placeholder={language === 'id' ? "Nomor Handphone Terdaftar" : "Registered Phone No."}
+                          onFocus={() => setPhoneFocused(true)}
+                          onBlur={() => setPhoneFocused(false)}
+                          onChange={e => setPhone(e.target.value)}
+                          className={cn(
+                            "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                            theme === 'light' 
+                              ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                              : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                          )}
+                        />
+                      </motion.div>
+                    )}
+
+                    {/* Corporate Linkage field (Only in Register mode for Employee) */}
+                    {!isLogin && role === 'Employee' && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="relative"
+                      >
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-violet-400">
+                          <ShieldCheck size={18} className={cn(ownerIdInputFocused && "text-violet-500")} />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={ownerIdInput}
+                          placeholder={language === 'id' ? "Email Owner / Kode Bisnis" : "Owner Email / Business Code"}
+                          onFocus={() => setOwnerIdInputFocused(true)}
+                          onBlur={() => setOwnerIdInputFocused(false)}
+                          onChange={e => setOwnerIdInput(e.target.value)}
+                          className={cn(
+                            "w-full py-4 pl-12 pr-4 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                            theme === 'light' 
+                              ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                              : "bg-slate-900/40 border-white/10 text-white placeholder-violet-500 focus:border-violet-500 focus:bg-slate-900/10"
+                          )}
+                        />
+                      </motion.div>
+                    )}
+
+                    {/* Password input block */}
+                    <div className="relative">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500 transition-colors">
+                        <Lock size={18} className={cn(passwordFocused && "text-violet-500 dark:text-violet-400")} />
+                      </div>
+                      <input 
+                        type={showPassword ? "text" : "password"} 
+                        value={password}
+                        placeholder={t('passwordPlaceholder')}
+                        onFocus={() => setPasswordFocused(true)}
+                        onBlur={() => setPasswordFocused(false)}
+                        onChange={e => setPassword(e.target.value)}
+                        className={cn(
+                          "w-full py-4 pl-12 pr-12 text-sm rounded-2xl border transition-all duration-300 outline-none font-bold",
+                          theme === 'light' 
+                            ? "bg-slate-50/50 border-slate-200 text-slate-800 focus:border-violet-500 focus:bg-white" 
+                            : "bg-slate-900/40 border-white/10 text-white placeholder-slate-500 focus:border-violet-500 focus:bg-slate-900/10"
+                        )}
+                        style={{
+                          boxShadow: passwordFocused && theme === 'dark' ? '0 0 15px rgba(139,92,246,0.25)' : ''
+                        }}
+                      />
+                      <button 
+                        type="button" 
+                        tabIndex={-1}
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors p-1"
+                      >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+
+                    {/* Login recovery links and persistence checkboxes */}
+                    {isLogin && (
+                      <div className="flex items-center justify-between px-1 text-xs font-bold text-slate-500 dark:text-violet-300/70">
+                        <label className="flex items-center gap-2 cursor-pointer group hover:text-violet-500 dark:hover:text-white transition-colors">
+                          <input 
+                            type="checkbox" 
+                            defaultChecked
+                            className="rounded border-slate-300 dark:border-white/10 bg-transparent text-violet-600 focus:ring-violet-500 cursor-pointer h-4 w-4" 
+                          />
+                          <span>{language === 'id' ? 'Ingat Saya' : 'Remember Me'}</span>
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsResetMode(true);
+                            setError(null);
+                            setSuccess(null);
+                          }}
+                          className="hover:underline hover:text-violet-500 dark:hover:text-white transition-colors"
+                        >
+                          {language === 'id' ? 'Lupa Sandi?' : 'Forgot Password?'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </>
             )}
 
-            {/* Account Role Dropdown (Only on Register view) */}
-            <AnimatePresence>
-              {!isLogin && (
-                <motion.div 
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="space-y-2 relative overflow-visible"
-                >
-                  <label className={cn("flex justify-between items-center text-[11px] font-black tracking-widest uppercase mb-1", theme === 'light' ? "text-slate-500" : "text-violet-300")}>
-                    <span>{t('roleLabel')}</span>
-                    <span className="flex items-center gap-1 text-[9px] text-cyan-400 font-mono tracking-normal bg-cyan-950/30 border border-cyan-400/20 px-1.5 py-0.5 rounded-[4px]">
-                      <Sparkles size={10} className="animate-pulse" /> SECURE_SEC_01
-                    </span>
-                  </label>
 
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                      className={cn(
-                        "w-full p-4 rounded-2xl border flex items-center justify-between text-left transition-all duration-300 font-bold text-sm relative group overflow-hidden",
-                        "text-white bg-[#0f0724]/75 backdrop-blur-2xl border-violet-500/50",
-                        isDropdownOpen 
-                          ? "border-cyan-400 shadow-[0_0_30px_rgba(139,92,246,0.5),_0_0_15px_rgba(34,211,238,0.45)] text-white" 
-                          : "hover:border-violet-400 hover:shadow-[0_0_25px_rgba(139,92,246,0.35),_0_0_12px_rgba(34,211,238,0.25)]"
-                      )}
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(24, 11, 56, 0.75) 0%, rgba(11, 4, 28, 0.95) 100%)',
-                      }}
-                    >
-                      {/* Holographic scanner laser glow effect */}
-                      <span className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/70 to-transparent pointer-events-none" />
-                      <div className="absolute inset-0 bg-[linear-gradient(rgba(139,92,246,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(139,92,246,0.025)_1px,transparent_1px)] bg-[size:10px_10px] pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity" />
-
-                      {/* Sci-fi targeting brackets on the select button */}
-                      <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t-2 border-l-2 border-cyan-400 rounded-tl-sm" />
-                      <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t-2 border-r-2 border-violet-400 rounded-tr-sm" />
-                      <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b-2 border-l-2 border-violet-400 rounded-bl-sm" />
-                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b-2 border-r-2 border-cyan-400 rounded-br-sm" />
-
-                      <span className="flex items-center gap-3 relative z-10">
-                        {role === 'Owner' && (
-                          <>
-                            <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 p-1.5 rounded-lg shadow-[0_0_8px_rgba(251,191,36,0.2)]">
-                              <Crown size={16} className="text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.85)] shrink-0 animate-pulse" />
-                              <ShieldCheck size={14} className="text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.7)]" />
-                            </div>
-                            <span className="text-white tracking-wide text-xs font-black uppercase font-sans">Owner / Boss</span>
-                          </>
-                        )}
-                        {role === 'Employee' && (
-                          <>
-                            <div className="flex items-center gap-1.5 bg-cyan-500/10 border border-cyan-500/20 p-1.5 rounded-lg shadow-[0_0_8px_rgba(34,211,238,0.2)]">
-                              <Users size={16} className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.85)] shrink-0 animate-pulse" />
-                              <Fingerprint size={14} className="text-violet-400 drop-shadow-[0_0_6px_rgba(139,92,246,0.7)]" />
-                            </div>
-                            <span className="text-white tracking-wide text-xs font-black uppercase font-sans">Employee / Karyawan</span>
-                          </>
-                        )}
-                        {!role && (
-                          <>
-                            <div className="flex items-center justify-center w-6 h-6 rounded-lg bg-cyan-950/40 border border-cyan-500/20">
-                              <Sparkles size={14} className="text-cyan-400 animate-pulse shrink-0 drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]" />
-                            </div>
-                            <span className="text-violet-200/80 tracking-widest text-xs font-bold uppercase font-mono">
-                              {language === 'id' ? "PILIH PERAN AKUN" : "SELECT REGISTER ROLE"}
-                            </span>
-                          </>
-                        )}
-                      </span>
-
-                      <motion.div animate={{ rotate: isDropdownOpen ? 180 : 0 }} className="text-cyan-400 relative z-10 drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]">
-                        <ChevronDown size={18} />
-                      </motion.div>
-                    </button>
-
-                    <AnimatePresence>
-                      {isDropdownOpen && (
-                        <>
-                          <div className="fixed inset-0 z-40" onClick={() => setIsDropdownOpen(false)} />
-                                             <motion.div 
-                            initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 4, scale: 1 }}
-                            exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                            transition={{ duration: 0.2, ease: "easeOut" }}
-                            className="absolute left-0 right-0 z-50 rounded-2xl border p-2 backdrop-blur-3xl space-y-2 text-white shadow-[0_0_35px_rgba(139,92,246,0.5),_0_0_20px_rgba(34,211,238,0.35)] overflow-hidden border-violet-500/40"
-                            style={{
-                              background: 'linear-gradient(135deg, rgba(23, 11, 53, 0.88) 0%, rgba(10, 4, 27, 0.98) 100%)',
-                            }}
-                          >
-                            {/* Holographic scanner active line inside dropdown background */}
-                            <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-[pulse_1.5s_infinite] shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
-                            <div className="absolute inset-0 bg-[linear-gradient(rgba(139,92,246,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(139,92,246,0.035)_1px,transparent_1px)] bg-[size:12px_12px] pointer-events-none opacity-50" />
-
-                            <button
-                              type="button"
-                              onClick={() => { setRole('Owner'); setIsDropdownOpen(false); }}
-                              className={cn(
-                                "w-full p-4 rounded-xl text-left text-xs font-black flex items-center justify-between transition-all duration-200 border relative group overflow-hidden",
-                                role === 'Owner' 
-                                  ? "bg-violet-600/35 border-cyan-400/70 text-white shadow-[0_0_18px_rgba(6,182,212,0.3)] bg-gradient-to-r from-violet-600/30 to-[#0e0728]/10" 
-                                  : "border-transparent bg-white/5 hover:bg-violet-600/20 text-slate-200 hover:text-white hover:border-violet-500/30"
-                              )}
-                            >
-                              <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-violet-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-
-                              <span className="flex items-center gap-3.5 relative z-10">
-                                <div className="flex items-center gap-1.5 shrink-0 bg-black/45 border border-white/10 p-1.5 rounded-lg group-hover:border-violet-500/40 transition-colors">
-                                  <Crown size={16} className={cn(
-                                    "transition-all duration-300", 
-                                    role === 'Owner' ? "text-amber-300 drop-shadow-[0_0_10px_rgba(251,191,36,0.85)]" : "text-amber-400/70 group-hover:text-amber-400 group-hover:drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]"
-                                  )} />
-                                  <ShieldCheck size={14} className={cn(
-                                    "transition-all duration-300", 
-                                    role === 'Owner' ? "text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.85)]" : "text-cyan-400/60 group-hover:text-cyan-400"
-                                  )} />
-                                </div>
-                                <span className="tracking-widest uppercase font-bold text-white">Owner / Boss</span>
-                              </span>
-                              
-                              <div className="flex items-center gap-2 relative z-10 font-mono text-[9px] text-slate-400 group-hover:text-violet-300 transition-colors">
-                                {role === 'Owner' && (
-                                  <span className="font-sans font-black uppercase text-cyan-300 tracking-wider bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-400/50 shadow-[0_0_10px_rgba(34,211,238,0.45)]">
-                                    {language === 'id' ? 'Aktif' : 'Active'}
-                                  </span>
-                                )}
-                                <span className="opacity-60 font-black">SYS_ADMIN</span>
-                              </div>
-                              <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-cyan-500/0 via-cyan-400/40 to-cyan-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => { setRole('Employee'); setIsDropdownOpen(false); }}
-                              className={cn(
-                                "w-full p-4 rounded-xl text-left text-xs font-black flex items-center justify-between transition-all duration-200 border relative group overflow-hidden",
-                                role === 'Employee' 
-                                  ? "bg-violet-600/35 border-cyan-400/70 text-white shadow-[0_0_18px_rgba(6,182,212,0.3)] bg-gradient-to-r from-violet-600/30 to-[#0e0728]/10" 
-                                  : "border-transparent bg-white/5 hover:bg-violet-600/20 text-slate-200 hover:text-white hover:border-violet-500/30"
-                              )}
-                            >
-                              <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-violet-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-
-                              <span className="flex items-center gap-3.5 relative z-10">
-                                <div className="flex items-center gap-1.5 shrink-0 bg-black/45 border border-white/10 p-1.5 rounded-lg group-hover:border-violet-500/40 transition-colors">
-                                  <Users size={16} className={cn(
-                                    "transition-all duration-300", 
-                                    role === 'Employee' ? "text-cyan-300 drop-shadow-[0_0_10px_rgba(34,211,238,0.85)]" : "text-cyan-400/70 group-hover:text-cyan-400 group-hover:drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]"
-                                  )} />
-                                  <Fingerprint size={14} className={cn(
-                                    "transition-all duration-300", 
-                                    role === 'Employee' ? "text-violet-300 drop-shadow-[0_0_8px_rgba(139,92,246,0.85)]" : "text-violet-400/60 group-hover:text-violet-400"
-                                  )} />
-                                </div>
-                                <span className="tracking-widest uppercase font-bold text-white">Employee / Karyawan</span>
-                              </span>
-
-                              <div className="flex items-center gap-2 relative z-10 font-mono text-[9px] text-slate-400 group-hover:text-violet-300 transition-colors">
-                                {role === 'Employee' && (
-                                  <span className="font-sans font-black uppercase text-cyan-300 tracking-wider bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-400/50 shadow-[0_0_10px_rgba(34,211,238,0.45)]">
-                                    {language === 'id' ? 'Aktif' : 'Active'}
-                                  </span>
-                                )}
-                                <span className="opacity-60 font-black">SYS_STAFF</span>
-                              </div>
-                              <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-violet-500/0 via-violet-400/40 to-violet-400/0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </button>
-                          </motion.div>
-                        </>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
 
             {/* Standard Login Authorization Button */}
             <div className="pt-2">
@@ -1093,7 +1172,13 @@ export default function Auth({ onNavigate }: { onNavigate: (view: any) => void }
                 style={{ boxShadow: '0 4px 20px rgba(139, 92, 246, 0.4)' }}
               >
                 {isLoading && <Loader2 className="animate-spin text-white" size={16} />}
-                {isLogin ? (language === 'id' ? "MASUK KE LEDGER" : "LOG IN TO SUITE") : (language === 'id' ? "DAFTARKAN BARU" : "REGISTER PROFILE")}
+                {role === 'Guest' ? (
+                  language === 'id' ? "MASUK SEBAGAI GUEST DEMO 🌟" : "ENTER AS GUEST DEMO 🌟"
+                ) : isLogin ? (
+                  language === 'id' ? "MASUK KE LEDGER" : "LOG IN TO SUITE"
+                ) : (
+                  language === 'id' ? "DAFTARKAN BARU" : "REGISTER PROFILE"
+                )}
               </motion.button>
             </div>
 

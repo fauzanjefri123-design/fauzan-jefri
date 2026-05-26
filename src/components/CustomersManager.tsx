@@ -5,8 +5,11 @@ import {
   QrCode, Ticket, Percent, Sparkles, Trophy, Plus, ArrowUpRight
 } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../lib/sounds';
-import { cn, getPartitionedKey } from '../lib/utils';
+import { cn, getPartitionedKey, safeJsonParse } from '../lib/utils';
 import QRScanner from './QRScanner';
+import { useThemeLanguage } from '../context/ThemeLanguageContext';
+import { translations } from '../lib/translations';
+import DOMPurify from 'dompurify';
 
 interface Customer {
   id: string;
@@ -22,7 +25,7 @@ interface Customer {
   cashbackBalance: number;
 }
 
-const DEFAULT_CUSTOMERS: Customer[] = [
+const SAMPLE_CUSTOMERS: Customer[] = [
   {
     id: 'c1',
     name: 'Ahmad Fauzi',
@@ -33,10 +36,7 @@ const DEFAULT_CUSTOMERS: Customer[] = [
     totalSpent: 1250000,
     points: 450,
     memberLevel: 'Platinum',
-    shoppingHistory: [
-      { id: 'h1', date: '2026-05-19 14:20', amount: 450000, items: 'Original Premium Espresso x5, Croissant' },
-      { id: 'h2', date: '2026-05-15 09:30', amount: 800000, items: 'Smart Watch 2026 Pro x1' }
-    ],
+    shoppingHistory: [],
     cashbackBalance: 75000
   },
   {
@@ -49,39 +49,31 @@ const DEFAULT_CUSTOMERS: Customer[] = [
     totalSpent: 350000,
     points: 120,
     memberLevel: 'Gold',
-    shoppingHistory: [
-      { id: 'h3', date: '2026-05-18 16:45', amount: 250000, items: 'Matcha Latte x3, Burger x2' },
-      { id: 'h4', date: '2026-05-10 11:15', amount: 100000, items: 'Cokelat Lava Meltdown x2' }
-    ],
+    shoppingHistory: [],
     cashbackBalance: 15000
-  },
-  {
-    id: 'c3',
-    name: 'Budi Santoso',
-    phone: '081922334455',
-    email: 'budi.santoso@outlook.com',
-    address: 'Kertajaya Indah No. 12, Surabaya',
-    photoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-    totalSpent: 85000,
-    points: 25,
-    memberLevel: 'Bronze',
-    shoppingHistory: [
-      { id: 'h5', date: '2026-05-12 10:00', amount: 85000, items: 'Matcha Latte x1, Croissant x1' }
-    ],
-    cashbackBalance: 2000
   }
 ];
 
 export default function CustomersManager() {
+  const { language } = useThemeLanguage();
+  const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
+
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const key = getPartitionedKey('inmarket_customers_data', false);
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : DEFAULT_CUSTOMERS;
+    return safeJsonParse(localStorage.getItem(key), []);
   });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isCrmScannerActive, setIsCrmScannerActive] = useState(false);
+
+  const handleLoadSampleCustomers = () => {
+    const key = getPartitionedKey('inmarket_customers_data', false);
+    const existing = safeJsonParse(localStorage.getItem(key), []);
+    const merged = [...SAMPLE_CUSTOMERS, ...existing];
+    saveCustomers(merged);
+    playSuccessSound();
+  };
 
   const handleCrmScan = (text: string) => {
     const found = customers.find(c => 
@@ -131,13 +123,24 @@ export default function CustomersManager() {
     e.preventDefault();
     if (!name || !phone) return;
 
+    const sanitizedName = DOMPurify.sanitize(name);
+    const sanitizedPhone = DOMPurify.sanitize(phone);
+    const sanitizedEmail = DOMPurify.sanitize(email);
+    const sanitizedAddress = DOMPurify.sanitize(address);
+    const sanitizedPhotoUrl = DOMPurify.sanitize(photoUrl);
+
+    if (sanitizedPhone && !/^[0-9+]+$/.test(sanitizedPhone)) {
+      alert("Invalid phone format");
+      return;
+    }
+
     const newCust: Customer = {
       id: 'cust_' + Date.now(),
-      name,
-      phone,
-      email: email || 'customer@inmarket.com',
-      address: address || 'N/A',
-      photoUrl: photoUrl || `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 999999999)}?w=150&auto=format&fit=crop&q=80`,
+      name: sanitizedName,
+      phone: sanitizedPhone,
+      email: sanitizedEmail || 'customer@inmarket.com',
+      address: sanitizedAddress || 'N/A',
+      photoUrl: sanitizedPhotoUrl || `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 999999999)}?w=150&auto=format&fit=crop&q=80`,
       totalSpent: Number(totalSpent) || 0,
       points: Number(points) || 0,
       memberLevel,
@@ -187,14 +190,14 @@ export default function CustomersManager() {
     if (isLoyal) {
       return {
         loyal: true,
-        text: "Pelanggan ini termasuk pelanggan loyal. Berikan voucher khusus atau prioritas antrean pelayanan.",
-        badge: "👑 SETIA / LOYAL"
+        text: t('loyalRec'),
+        badge: t('loyalStatus')
       };
     } else {
       return {
         loyal: false,
-        text: "Pelanggan baru atau reguler. Berikan promo cashback member hari ini untuk meningkatkan retensi belanja.",
-        badge: "⚡ REGULER"
+        text: t('regulerRec'),
+        badge: t('regulerStatus')
       };
     }
   };
@@ -210,17 +213,17 @@ export default function CustomersManager() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold flex items-center gap-2">
-            <Users className="text-violet-500" /> Database Pelanggan & Loyalty Program
+            <Users className="text-violet-500" /> {t('databasePelanggan')}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Kelola CRM terintegrasi, QR Keanggotaan, Cashback Wallet, dan Analisis Kesetiaan AI.
+            {t('crmIntegratedInfo')}
           </p>
         </div>
         <button 
           onClick={() => { playClickSound(); setShowAddForm(true); }}
           className="py-2.5 px-4 bg-violet-600 hover:bg-violet-700 rounded-xl text-xs font-black uppercase text-white flex items-center gap-2 transition duration-200 shadow-md transform hover:-translate-y-0.5"
         >
-          <UserPlus size={16} /> Tambah Pelanggan
+          <UserPlus size={16} /> {t('tambahPelanggan')}
         </button>
       </div>
 
@@ -232,7 +235,7 @@ export default function CustomersManager() {
               <Search className="absolute left-3.5 top-3.5 text-slate-400" size={16} />
               <input 
                 type="text"
-                placeholder="Cari nama, email, atau HP..."
+                placeholder={t('phSearch')}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
@@ -246,7 +249,7 @@ export default function CustomersManager() {
                   ? "bg-rose-500/15 border-rose-500/30 text-rose-400" 
                   : "bg-violet-600/10 border-violet-500/20 text-violet-400 hover:bg-violet-600/20"
               )}
-              title="Pindai Kartu Anggota"
+              title={t('pinadaiKartuMember')}
             >
               <QrCode size={18} className={isCrmScannerActive ? "animate-pulse" : ""} />
             </button>
@@ -255,17 +258,43 @@ export default function CustomersManager() {
           {/* Collapsible QR Scanner for Customers */}
           {isCrmScannerActive && (
             <div className="p-4 bg-violet-500/5 border border-violet-500/15 rounded-2xl">
-              <span className="text-[10px] font-mono font-bold text-violet-400 block mb-2 uppercase">PINDAI KARTU ANGGOTA / MEMBER QR</span>
+              <span className="text-[10px] font-mono font-bold text-violet-400 block mb-2 uppercase">{t('pinadaiKartuMember')}</span>
               <QRScanner
                 onScanSuccess={handleCrmScan}
-                placeholderText="Tempel QR member atau ketik HP..."
+                placeholderText={t('phSearch')}
               />
             </div>
           )}
 
           <div className="p-4 rounded-3xl bg-white dark:bg-[#0c0817]/60 border border-indigo-100/10 max-h-[500px] overflow-y-auto space-y-2 custom-scrollbar">
             {filtered.length === 0 ? (
-              <div className="py-8 text-center text-xs opacity-50">Tidak ada data pelanggan.</div>
+              <div className="py-12 flex flex-col items-center justify-center text-center px-4">
+                <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 flex items-center justify-center mb-4 border border-indigo-500/20">
+                  <Users className="text-indigo-400" size={32} />
+                </div>
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">
+                  {language === 'id' ? 'Belum Ada Pelanggan' : 'No Customers Found'}
+                </h4>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 max-w-[200px] leading-relaxed mb-6">
+                  {language === 'id' 
+                    ? 'Daftar pelanggan Anda kosong. Tambahkan pelanggan untuk mulai mengelola CRM.' 
+                    : 'Your customer list is empty. Add customers to start managing your CRM.'}
+                </p>
+                <div className="flex flex-col gap-2 w-full">
+                  <button 
+                    onClick={() => { playClickSound(); setShowAddForm(true); }}
+                    className="w-full py-2.5 bg-violet-600 hover:bg-violet-700 rounded-xl text-[10px] font-black uppercase text-white shadow-sm transition active:scale-95"
+                  >
+                    <Plus size={14} className="inline mr-1" /> {t('tambahPelanggan')}
+                  </button>
+                  <button 
+                    onClick={handleLoadSampleCustomers}
+                    className="w-full py-2 bg-white/5 border border-indigo-500/10 hover:bg-white/10 rounded-xl text-[9px] font-bold uppercase text-slate-400 transition"
+                  >
+                    {language === 'id' ? 'Muat Data Contoh' : 'Load Sample Data'}
+                  </button>
+                </div>
+              </div>
             ) : (
               filtered.map(c => {
                 const isSelected = selectedCustomer?.id === c.id;
@@ -349,19 +378,19 @@ export default function CustomersManager() {
               {/* CRM Stats widget row */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 relative z-10">
                 <div className="p-4 bg-white/5 border border-white/10 rounded-2xl hover:border-violet-500/30 transition duration-300">
-                  <span className="text-[9px] opacity-50 uppercase block font-mono">TOTAL TRANSAKSI</span>
+                  <span className="text-[9px] opacity-50 uppercase block font-mono">{t('totalTransaksi')}</span>
                   <strong className="text-sm tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-pink-300">
                     Rp{selectedCustomer.totalSpent.toLocaleString()}
                   </strong>
                 </div>
                 <div className="p-4 bg-white/5 border border-white/10 rounded-2xl hover:border-violet-500/30 transition duration-300">
-                  <span className="text-[9px] opacity-50 uppercase block font-mono">LOYALTY POINTS</span>
+                  <span className="text-[9px] opacity-50 uppercase block font-mono">{t('loyaltyPoints')}</span>
                   <strong className="text-sm tracking-wide text-emerald-400 flex items-center gap-1">
                     <Trophy size={14} /> {selectedCustomer.points} PTS
                   </strong>
                 </div>
                 <div className="p-4 bg-white/5 border border-white/10 rounded-2xl hover:border-violet-500/30 transition duration-300">
-                  <span className="text-[9px] opacity-50 uppercase block font-mono">CASHBACK BALANCE</span>
+                  <span className="text-[9px] opacity-50 uppercase block font-mono">{t('cashbackBalance')}</span>
                   <strong className="text-sm tracking-wide text-cyan-400">
                     Rp{selectedCustomer.cashbackBalance.toLocaleString()}
                   </strong>
@@ -376,10 +405,11 @@ export default function CustomersManager() {
                   </h4>
                   <div className="flex items-center gap-3 bg-black/40 p-3 rounded-xl border border-white/5">
                     <div className="bg-white p-1 rounded">
-                      {/* Placeholder simulation QR code */}
-                      <div className="w-14 h-14 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black rounded flex items-center justify-center text-white text-[7px] font-mono leading-none font-bold">
-                        [IN_QR_C]
-                      </div>
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${selectedCustomer.id}`}
+                        alt="Customer QR Code"
+                        className="w-14 h-14"
+                      />
                     </div>
                     <div className="space-y-1">
                       <span className="text-[10px] text-zinc-300 block font-bold">Member QR-Key</span>
@@ -411,12 +441,12 @@ export default function CustomersManager() {
 
               {/* Shopping History tracking */}
               <div className="space-y-3 relative z-10">
-                <h4 className="text-[10px] font-black uppercase tracking-wider text-violet-400">RIWAYAT BELANJA REALTIME</h4>
+                <h4 className="text-[10px] font-black uppercase tracking-wider text-violet-400">{t('riwayatBelanja')}</h4>
                 <div className="space-y-2 max-h-[140px] overflow-y-auto custom-scrollbar pr-1">
-                  {selectedCustomer.shoppingHistory.length === 0 ? (
-                    <div className="py-4 text-center text-[10px] opacity-40 italic">Belum ada transaksi terekam.</div>
+                  {(!selectedCustomer.shoppingHistory || selectedCustomer.shoppingHistory.length === 0) ? (
+                    <div className="py-4 text-center text-[10px] opacity-40 italic">{t('noActivity')}</div>
                   ) : (
-                    selectedCustomer.shoppingHistory.map(hist => (
+                    (selectedCustomer.shoppingHistory || []).map(hist => (
                       <div 
                         key={hist.id}
                         className="p-2.5 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between text-xs hover:bg-white/10 transition"
@@ -435,7 +465,7 @@ export default function CustomersManager() {
           ) : (
             <div className="h-96 flex flex-col items-center justify-center border border-indigo-100/10 rounded-3xl bg-white/5 text-slate-400">
               <Users size={32} className="animate-pulse mb-3" />
-              <p className="text-xs">Pilih pelanggan untuk melihat deatils holographic profile.</p>
+              <p className="text-xs">{t('pilihPelangganInfo')}</p>
             </div>
           )}
         </div>
@@ -452,7 +482,7 @@ export default function CustomersManager() {
               className="w-full max-w-lg p-6 bg-[#090615]/95 rounded-3xl border border-violet-500/30 text-white space-y-4"
             >
               <div className="flex justify-between items-center border-b border-white/5 pb-3">
-                <h3 className="text-sm font-black uppercase tracking-widest text-violet-400">Tambah Pelanggan Baru</h3>
+                <h3 className="text-sm font-black uppercase tracking-widest text-violet-400">{t('tambahPelanggan')}</h3>
                 <button 
                   onClick={() => { playClickSound(); setShowAddForm(false); }}
                   className="p-1 rounded-lg hover:bg-white/10"
@@ -463,19 +493,19 @@ export default function CustomersManager() {
 
               <form onSubmit={handleAddCustomer} className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">NAMA PELANGGAN *</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('namaPelanggan')} *</label>
                   <input 
                     required 
                     type="text" 
                     value={name}
                     onChange={e => setName(e.target.value)}
-                    placeholder="Contoh: Fauzan Jefri"
+                    placeholder={t('phInput')}
                     className="w-full p-3 bg-white/5 border border-white/10 rounded-xl text-xs outline-none text-white focus:border-violet-500"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">NOMOR HP *</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('nomorHp')} *</label>
                   <input 
                     required 
                     type="text" 
@@ -487,29 +517,29 @@ export default function CustomersManager() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">EMAIL ELIT</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('emailElit')}</label>
                   <input 
                     type="email" 
                     value={email}
                     onChange={e => setEmail(e.target.value)}
-                    placeholder="fauzanjefri123@gmail.com"
+                    placeholder={t('phInput')}
                     className="w-full p-3 bg-white/5 border border-white/10 rounded-xl text-xs outline-none text-white focus:border-violet-500"
                   />
                 </div>
 
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">ALAMAT LENGKAP</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('alamatLengkap')}</label>
                   <input 
                     type="text" 
                     value={address}
                     onChange={e => setAddress(e.target.value)}
-                    placeholder="Alamat penyerahan/pengiriman"
+                    placeholder={t('phInput')}
                     className="w-full p-3 bg-white/5 border border-white/10 rounded-xl text-xs outline-none text-white focus:border-violet-500"
                   />
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">MEMBER LEVEL</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('memberLevel')}</label>
                   <select 
                     value={memberLevel}
                     onChange={e => setMemberLevel(e.target.value as any)}
@@ -523,7 +553,7 @@ export default function CustomersManager() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">INITIAL REWARD POINTS</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('initialRewardPoints')}</label>
                   <input 
                     type="number" 
                     value={points}
@@ -533,7 +563,7 @@ export default function CustomersManager() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">TOTAL TRANS (Rp)</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('totalTrans')}</label>
                   <input 
                     type="number" 
                     value={totalSpent}
@@ -543,7 +573,7 @@ export default function CustomersManager() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">INITIAL CASHBACK (Rp)</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('initialCashback')}</label>
                   <input 
                     type="number" 
                     value={cashback}
@@ -556,7 +586,7 @@ export default function CustomersManager() {
                   type="submit"
                   className="col-span-2 py-3.5 bg-violet-600 hover:bg-violet-700 rounded-xl font-bold text-xs uppercase"
                 >
-                  🚀 SIMPAN PELANGGAN KE GRID CRM
+                  🚀 {t('simpanPelanggan')}
                 </button>
               </form>
             </motion.div>

@@ -44,8 +44,7 @@ interface FloatingParticle {
 }
 
 export default function LandingPage({ onNavigate }: { onNavigate: (view: any) => void }) {
-  const { language, theme, setLanguage } = useThemeLanguage();
-  const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
+  const { language, theme, setLanguage, t } = useThemeLanguage();
 
   // Scroll tracking for cinematic parallax transitions
   const [scrollY, setScrollY] = useState(0);
@@ -81,7 +80,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
     const demoUser = {
       uid: 'offline_guest_2026',
       email: 'guest@inmarket.id',
-      displayName: 'Demo Guest',
+      displayName: language === 'id' ? 'Tamu Demo' : 'Demo Guest',
       role: 'Owner'
     };
     
@@ -136,7 +135,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
   // Headline typewriter effect states
   const taglineFullId = "“Smart Business Operating System”";
   const taglineFullEn = "“Smart Business Operating System”";
-  const taglineText = language === 'id' ? taglineFullId : taglineFullEn;
+  const taglineText = taglineFullId;
   const [typedTagline, setTypedTagline] = useState('');
 
   useEffect(() => {
@@ -298,16 +297,16 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
           
           <button 
             onClick={() => { playClickSound(); onNavigate('auth'); }}
-            className="hidden sm:flex px-4.5 py-2.5 bg-violet-600/10 hover:bg-violet-600/20 text-violet-300 border border-violet-500/20 rounded-full font-bold text-xs tracking-wider transition-all cursor-pointer"
+            className="hidden sm:flex px-4.5 py-2.5 bg-violet-600/10 hover:bg-violet-600/20 text-violet-300 border border-violet-500/20 rounded-full font-bold text-xs tracking-wider transition-all cursor-pointer uppercase"
           >
-            LOGIN OWNER
+            {t('navLogin')}
           </button>
 
           <button 
             onClick={handleDemoGuestLogin}
-            className="px-5 py-2.5 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white rounded-full text-xs font-bold hover:shadow-[0_0_20px_rgba(34,211,238,0.5)] transition-all flex items-center gap-1.5 border border-violet-400/20 cursor-pointer"
+            className="px-5 py-2.5 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white rounded-full text-xs font-bold hover:shadow-[0_0_20px_rgba(34,211,238,0.5)] transition-all flex items-center gap-1.5 border border-violet-400/20 cursor-pointer uppercase"
           >
-            <span>DEMO GUEST</span> <ArrowRight size={13} className="animate-pulse" />
+            <span>{t('navDemo')}</span> <ArrowRight size={13} className="animate-pulse" />
           </button>
         </div>
       </nav>
@@ -327,7 +326,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
         >
           {/* Cybernetic Pill Label */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-violet-500/10 border border-violet-500/25 text-xs text-violet-300 tracking-[0.2em] font-mono uppercase font-bold animate-pulse">
-            <Sparkles size={13} className="text-cyan-400" /> DEEP HOLOGRAPHIC LEDGER PLATFORM
+            <Sparkles size={13} className="text-cyan-400" /> {language === 'id' ? 'PLATFORM LEDGER HOLOGRAFIK' : 'DEEP HOLOGRAPHIC LEDGER PLATFORM'}
           </div>
 
           {/* Epic Main Headline with floating neon text animations */}
@@ -350,7 +349,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
 
           {/* Subtext description */}
           <p className="text-sm md:text-lg text-slate-300/80 max-w-2xl mx-auto leading-relaxed font-sans">
-            Kelola bisnis modern dengan AI, realtime analytics, stock management, QRIS, dan dashboard futuristik.
+            {t('landingHeroSub')}
           </p>
 
           {/* Glassmorphic Glowing Button cluster */}
@@ -359,7 +358,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
               onClick={() => { playSuccessSound(); onNavigate('auth'); }}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 rounded-2xl font-bold text-xs text-white uppercase tracking-wider hover:scale-[1.03] transition-all duration-300 relative group overflow-hidden border border-white/10 shadow-[0_0_20px_rgba(139,92,246,0.25)] hover:shadow-[0_0_35px_rgba(139,92,246,0.55)] cursor-pointer"
             >
-              <span className="relative z-10 flex items-center justify-center gap-2">Mulai Sekarang <ArrowRight size={14} /></span>
+              <span className="relative z-10 flex items-center justify-center gap-2">{language === 'id' ? 'Mulai Sekarang' : 'Start Now'} <ArrowRight size={14} /></span>
               <div className="absolute inset-0 bg-white/10 hover:opacity-100 opacity-0 transition-opacity" />
               <div className="absolute top-0 -left-full w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent group-hover:animate-[shimmer_1.5s_infinite]" />
             </button>
@@ -368,7 +367,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
               onClick={() => { playClickSound(); onNavigate('auth'); }}
               className="w-full sm:w-auto px-8 py-4 bg-[#ffffff]/5 hover:bg-[#ffffff]/10 text-white rounded-2xl font-bold text-xs uppercase tracking-wider transition-all border border-white/10 backdrop-blur-xl hover:border-violet-500/50 hover:shadow-[0_0_20px_rgba(139,92,246,0.2)] cursor-pointer"
             >
-              Masuk Akun
+              {t('loginTitle')}
             </button>
 
             <button
@@ -376,31 +375,21 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
               className="w-full sm:w-auto px-8 py-4 bg-[#22d3ee]/10 hover:bg-[#22d3ee]/20 text-cyan-300 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all border border-cyan-400/40 backdrop-blur-xl hover:shadow-[0_0_25px_rgba(34,211,238,0.45)] cursor-pointer flex items-center justify-center gap-1.5"
             >
               <Tv size={14} className="shrink-0 animate-pulse" />
-              <span>Demo Guest</span>
+              <span>{t('navDemo')}</span>
             </button>
           </div>
 
           <div className="pt-2">
             <button 
               onClick={handleTestChime}
-              className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[10px] font-mono tracking-widest text-[#a855f7] dark:text-cyan-400 cursor-pointer transition-all"
+              className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[10px] font-mono tracking-widest text-[#a855f7] dark:text-cyan-400 cursor-pointer transition-all uppercase"
             >
-              🔊 TEST PLATFORM CHIME
+              {t('testChime')}
             </button>
           </div>
         </motion.div>
 
-        {/* Scroll invitation node indicator */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 text-slate-500 text-xs font-mono select-none pointer-events-none">
-          <span>SCROLL DOWN TO REVEAL DEEP WORKSPACE</span>
-          <motion.div 
-            animate={{ y: [0, 8, 0] }}
-            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-            className="w-1 px-1 h-6 border border-slate-600 rounded-full flex justify-center pt-1"
-          >
-            <span className="w-1 h-2 bg-violet-400 rounded-full block animate-ping" />
-          </motion.div>
-        </div>
+
       </section>
 
       {/* ================================================= */}
@@ -428,7 +417,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
             </div>
             <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between">
               <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-md text-[10px] text-emerald-400 font-mono font-bold animate-pulse">
-                ● ACTIVE 2026 SAAS MATRIX
+                ● {t('activeSaas')}
               </span>
             </div>
           </div>
@@ -437,7 +426,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
             {/* Sales ledger chart simulation */}
             <div className="lg:col-span-2 space-y-6">
               <div className="h-64 rounded-2xl bg-black/40 border border-white/5 p-5 relative">
-                <p className="text-xs uppercase font-extrabold tracking-widest text-indigo-400 mb-3 font-mono">Real-time Sales Velocities</p>
+                <p className="text-xs uppercase font-extrabold tracking-widest text-indigo-400 mb-3 font-mono">{t('salesVelocity')}</p>
                 <div className="h-[80%]">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={liveChartData}>
@@ -452,14 +441,14 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-5 rounded-2xl bg-[#0e0722]/50 border border-white/5 relative group hover:border-[#a855f7]/30 transition-all">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 font-mono">AI Forecast Margin</h4>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 font-mono">{t('aiForecast')}</h4>
                   <p className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-cyan-400">+45.2% YoY</p>
-                  <p className="text-[10px] opacity-50 font-mono mt-1">Simulated with Deep Neural Projections</p>
+                  <p className="text-[10px] opacity-50 font-mono mt-1">{language === 'id' ? 'Disimulasikan dengan Proyeksi Deep Neural' : 'Simulated with Deep Neural Projections'}</p>
                 </div>
                 <div className="p-5 rounded-2xl bg-[#0e0722]/50 border border-white/5 relative group hover:border-[#a855f7]/30 transition-all">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 font-mono">Biometric Attendance Logs</h4>
-                  <p className="text-2xl font-black text-emerald-400">99.8% Efficiency</p>
-                  <p className="text-[10px] opacity-50 font-mono mt-1">Secure Facial Coordinates Match OK</p>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 font-mono">{t('attendanceLogs')}</h4>
+                  <p className="text-2xl font-black text-emerald-400">99.8% {t('efficiency')}</p>
+                  <p className="text-[10px] opacity-50 font-mono mt-1">{language === 'id' ? 'Koordinat Wajah Aman Terverifikasi' : 'Secure Facial Coordinates Match OK'}</p>
                 </div>
               </div>
             </div>
@@ -472,10 +461,9 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-lg bg-[#a855f7]/20 border border-[#a855f7]/30 flex items-center justify-center font-bold text-xs text-violet-300">
                     AI
-                  </div>
-                  <div>
-                    <h5 className="text-xs font-extrabold font-mono tracking-wider">InMarket.id AI Bot</h5>
-                    <p className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider">PRESPECTIVE ALGORITHMS ACTIVE</p>
+                                 <div>
+                    <h5 className="text-xs font-extrabold font-mono tracking-wider">{language === 'id' ? 'InMarket.id Bot AI' : 'InMarket.id AI Bot'}</h5>
+                    <p className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider">{language === 'id' ? 'ALGORITMA PREDIKTIF AKTIF' : 'PRESPECTIVE ALGORITHMS ACTIVE'}</p>
                   </div>
                 </div>
 
@@ -489,9 +477,10 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
               </div>
 
               <div className="bg-[#a855f7]/10 p-3 rounded-xl flex items-center justify-between text-[11px] font-bold mt-4 border border-[#a855f7]/20">
-                <span className="text-indigo-200">✨ Stock Recommendation Ready</span>
+                <span className="text-indigo-200">✨ {language === 'id' ? 'Rekomendasi Stok Siap' : 'Stock Recommendation Ready'}</span>
                 <Compass size={14} className="text-cyan-400 animate-spin" style={{ animationDuration: '8s' }} />
               </div>
+             </div>
             </div>
           </div>
         </motion.div>
@@ -507,7 +496,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
               {t('landingMetricsTitle')}
             </h3>
             <p className="text-sm md:text-base opacity-70">
-              Ribuan transaksi dan pelaku UMKM modern terintegrasi dalam jejaring bisnis berbasis AI 2026.
+              {language === 'id' ? 'Ribuan transaksi dan pelaku UMKM modern terintegrasi dalam jejaring bisnis berbasis AI 2026.' : 'Thousands of transactions and modern MSME players integrated in AI-powered business networks 2026.'}
             </p>
           </div>
 
@@ -516,21 +505,21 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
               <div className="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 mb-3 font-mono">
                 {metricCounts.transactions.toLocaleString()}+
               </div>
-              <p className="text-xs uppercase tracking-widest font-bold opacity-60">Transaksi Diproses Detik Ini</p>
+              <p className="text-xs uppercase tracking-widest font-bold opacity-60">{language === 'id' ? 'Transaksi Diproses Detik Ini' : 'Transactions Processed This Second'}</p>
             </div>
             
             <div className="p-8 text-center bg-black/30 backdrop-blur-md border border-white/5 rounded-2xl hover:border-violet-500/25 transition-all">
               <div className="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-indigo-400 mb-3 font-mono">
                 {metricCounts.businesses}+
               </div>
-              <p className="text-xs uppercase tracking-widest font-bold opacity-60">Gerai Bisnis UMKM Aktif 2026</p>
+              <p className="text-xs uppercase tracking-widest font-bold opacity-60">{language === 'id' ? 'Gerai Bisnis UMKM Aktif 2026' : 'Active MSME Business Outlets 2026'}</p>
             </div>
             
             <div className="p-8 text-center bg-black/30 backdrop-blur-md border border-white/5 rounded-2xl hover:border-violet-500/25 transition-all">
               <div className="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 mb-3 font-mono">
                 {metricCounts.satisfaction}%
               </div>
-              <p className="text-xs uppercase tracking-widest font-bold opacity-60">Indeks Kepuasan Pengguna</p>
+              <p className="text-xs uppercase tracking-widest font-bold opacity-60">{language === 'id' ? 'Indeks Kepuasan Pengguna' : 'User Satisfaction Index'}</p>
             </div>
           </div>
         </div>
@@ -565,12 +554,12 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
-            { icon: LayoutDashboard, title: language === 'id' ? "Dashboard Kuantum" : "Quantum Dashboard", desc: "Sistem grafik real-time 2026 yang menyajikan tren laba-rugi, neraca pemasukan, dan pos pengeluaran dalam satu pandangan data." },
-            { icon: Package, title: language === 'id' ? "Smart Stock Flow & CSV" : "Smart Stock Flow & CSV", desc: "Dilengkapi status stok berwarna merah, kuning, dan hijau. Dukungan upload foto produk ganda plus import bulk file CSV instan." },
-            { icon: Users, title: language === 'id' ? "Absensi Selfie & Gaji Karyawan" : "Selfie Clocking & Payroll", desc: "Owner men-generate kode acak harian. Karyawan menginput kode dan mengupload foto masuk kerja bersertifikat biometrik." },
-            { icon: BarChart3, title: language === 'id' ? "Kasir Multisaluran & Invoice" : "Omnichannel Terminal POS", desc: "Mendukung transaksi Cash, QRIS statis 2026, transfer bank, dan E-Wallet serta mencetak invoice digital dengan sound beeps." },
-            { icon: Zap, title: language === 'id' ? "Asisten AI Prediktif" : "Predictive AI Planner", desc: "Layanan asisten otomatis yang menjawab chat bisnis, membuat anjuran strategi harga, prediksi pengeluaran, dan tips draf." },
-            { icon: ShieldCheck, title: language === 'id' ? "Otoritas Sandbox Militer" : "Military Sandbox Isolation", desc: "Seluruh basis data multi-toko terlindung di cloud, terisolasi sempurna pada ID otorisasi lokal agar mencegah kebocoran data." }
+            { icon: LayoutDashboard, title: t('dashboard'), desc: language === 'id' ? "Sistem grafik real-time 2026 yang menyajikan tren laba-rugi, neraca pemasukan, dan pos pengeluaran dalam satu pandangan data." : "Real-time 2026 chart system presenting profit-loss trends, revenue balance, and expense categories in one data view." },
+            { icon: Package, title: t('inventory'), desc: language === 'id' ? "Dilengkapi status stok berwarna merah, kuning, dan hijau. Dukungan upload foto produk ganda plus import bulk file CSV instan." : "Equipped with red, yellow, and green stock status. Supports dual product photo uploads plus instant bulk CSV file import." },
+            { icon: Users, title: t('absensi'), desc: language === 'id' ? "Owner men-generate kode acak harian. Karyawan menginput kode dan mengupload foto masuk kerja bersertifikat biometrik." : "Owners generate daily random codes. Employees input the code and upload biometric-certified work-entry photos." },
+            { icon: BarChart3, title: t('kasir'), desc: language === 'id' ? "Mendukung transaksi Cash, QRIS statis 2026, transfer bank, dan E-Wallet serta mencetak invoice digital dengan sound beeps." : "Supports Cash, static 2026 QRIS, bank transfer, and E-Wallet transactions and prints digital invoices with sound beeps." },
+            { icon: Zap, title: t('aiAssistant'), desc: language === 'id' ? "Layanan asisten otomatis yang menjawab chat bisnis, membuat anjuran strategi harga, prediksi pengeluaran, dan tips draf." : "Automated assistant service answering business chats, creating price strategy suggestions, expense predictions, and draft tips." },
+            { icon: ShieldCheck, title: t('landingSecTitle'), desc: language === 'id' ? "Seluruh basis data multi-toko terlindung di cloud, terisolasi sempurna pada ID otorisasi lokal agar mencegah kebocoran data." : "Entire multi-store database protected in the cloud, perfectly isolated on local authorization IDs to prevent data leaks." }
           ].map((f, i) => (
             <div key={i} className="p-8 bg-neutral-950/40 border border-white/5 rounded-3xl hover:border-violet-500/50 transition-all duration-300 group hover:-translate-y-1.5 shadow-lg relative overflow-hidden backdrop-blur-md">
               <div className="p-3 bg-violet-600/10 rounded-xl inline-block text-violet-400 mb-6 group-hover:scale-110 group-hover:shadow-[0_0_15px_rgba(139,92,246,0.3)] transition-all">
@@ -595,12 +584,12 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
             <div>
               <span className="text-[10px] font-mono font-bold tracking-widest text-[#a855f7] dark:text-cyan-400 uppercase">STARTER CORE</span>
               <h4 className="text-3xl font-extrabold mt-2 text-white">Rp 0 <span className="text-xs font-normal opacity-50">/ {language === 'id' ? 'selamanya' : 'forever'}</span></h4>
-              <p className="text-xs text-slate-400 mt-2">Sistem dasar untuk UMKM rintisan baru pelopor lokal.</p>
+              <p className="text-xs text-slate-400 mt-2">{language === 'id' ? 'Sistem dasar untuk UMKM rintisan baru pelopor lokal.' : 'Basic system for new local pioneer MSME startups.'}</p>
               <ul className="space-y-3.5 text-xs font-medium mt-8 border-t border-white/5 pt-6 opacity-85">
-                <li>✓ Max 50 Item Produk Terbatas</li>
-                <li>✓ 1 Akun Operator Karyawan</li>
-                <li>✓ Dashboard Kasir & Arus Kas</li>
-                <li className="opacity-30">✗ Rekomendasi Algoritma AI Pintar</li>
+                <li>✓ {language === 'id' ? 'Max 50 Item Produk Terbatas' : 'Max 50 Limited Product Items'}</li>
+                <li>✓ {language === 'id' ? '1 Akun Operator Karyawan' : '1 Employee Operator Account'}</li>
+                <li>✓ {language === 'id' ? 'Dashboard Kasir & Arus Kas' : 'Main POS & Cashflow Dashboard'}</li>
+                <li className="opacity-30">✗ {language === 'id' ? 'Rekomendasi Algoritma AI Pintar' : 'Smart AI Algorithm Recommendations'}</li>
               </ul>
             </div>
             <button onClick={() => onNavigate('auth')} className="w-full mt-8 py-4 rounded-xl font-bold text-xs bg-white/5 hover:bg-white/10 text-white transition-all border border-white/10 uppercase tracking-widest cursor-pointer">
@@ -613,16 +602,16 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
             <div>
               <span className="text-[10px] font-mono font-bold tracking-widest text-violet-400 uppercase">PROFESSIONAL SAAS</span>
               <h4 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-300 mt-2">Rp 199.000 <span className="text-xs font-normal text-slate-300">/ {language === 'id' ? 'bln' : 'mo'}</span></h4>
-              <p className="text-xs text-indigo-200 mt-2 font-semibold">Senjata tempur utama UMKM berkembang pesat.</p>
+              <p className="text-xs text-indigo-200 mt-2 font-semibold">{language === 'id' ? 'Senjata tempur utama UMKM berkembang pesat.' : 'Primary toolset for rapidly growing MSMEs.'}</p>
               <ul className="space-y-3.5 text-xs font-medium mt-8 border-t border-[#a855f7]/20 pt-6">
-                <li>✓ Katalog Produk Tanpa Batas (Unlimited)</li>
-                <li>✓ Hingga 15 Akun Absensi Karyawan</li>
-                <li>✓ Laporan Gaji & Slip Foto Selfie</li>
-                <li>✓ Asisten AI Prediksi Stok & Laba</li>
+                <li>✓ {language === 'id' ? 'Katalog Produk Tanpa Batas (Unlimited)' : 'Unlimited Product Catalog'}</li>
+                <li>✓ {language === 'id' ? 'Hingga 15 Akun Absensi Karyawan' : 'Up to 15 Employee Attendance Accounts'}</li>
+                <li>✓ {language === 'id' ? 'Laporan Gaji & Slip Foto Selfie' : 'Payroll Reports & Selfie Slips'}</li>
+                <li>✓ {language === 'id' ? 'Asisten AI Prediksi Stok & Laba' : 'AI Stock & Profit Prediction Assistant'}</li>
               </ul>
             </div>
             <button onClick={() => onNavigate('auth')} className="w-full mt-8 py-4 rounded-xl font-bold text-xs bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md hover:shadow-lg hover:shadow-violet-500/20 transition-all uppercase tracking-widest cursor-pointer">
-              {language === 'id' ? "Sewa Sekarang" : "Subscribe Now"}
+              {t('paySalary')}
             </button>
           </div>
 
@@ -630,12 +619,12 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
             <div>
               <span className="text-[10px] font-mono font-bold tracking-widest text-[#a855f7] dark:text-cyan-400 uppercase">ENTERPRISE CORE</span>
               <h4 className="text-3xl font-extrabold mt-2 text-white">Rp 499.000 <span className="text-xs font-normal opacity-50">/ {language === 'id' ? 'bln' : 'mo'}</span></h4>
-              <p className="text-xs text-slate-400 mt-2">Jejaring multi-toko waralaba dan lisensi korporat global.</p>
+              <p className="text-xs text-slate-400 mt-2">{language === 'id' ? 'Jejaring multi-toko waralaba dan lisensi korporat global.' : 'Multi-outlet franchises and global corporate licenses.'}</p>
               <ul className="space-y-3.5 text-xs font-medium mt-8 border-t border-white/5 pt-6 opacity-85">
-                <li>✓ Semua Fitur Pro Tanpa Batas</li>
-                <li>✓ Akun Staff & Operator Karyawan Infinite</li>
-                <li>✓ Integrasi API & Barcode Scanner</li>
-                <li>✓ Customer SLA Premium Prioritas 24/7</li>
+                <li>✓ {language === 'id' ? 'Semua Fitur Pro Tanpa Batas' : 'All Pro Features Unlimited'}</li>
+                <li>✓ {language === 'id' ? 'Akun Staff & Operator Karyawan Infinite' : 'Infinite Staff & Operator Accounts'}</li>
+                <li>✓ {language === 'id' ? 'Integrasi API & Barcode Scanner' : 'API Integration & Barcode Scanner'}</li>
+                <li>✓ {language === 'id' ? 'Customer SLA Premium Prioritas 24/7' : '24/7 Priority Premium Customer SLA'}</li>
               </ul>
             </div>
             <button onClick={() => onNavigate('auth')} className="w-full mt-8 py-4 rounded-xl font-bold text-xs bg-white/5 hover:bg-white/10 text-white transition-all border border-white/10 uppercase tracking-widest cursor-pointer">
@@ -656,7 +645,9 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
           </div>
           <h3 className="text-2xl md:text-4xl font-extrabold tracking-tight text-white">{t('landingSecTitle')}</h3>
           <p className="opacity-70 text-xs md:text-sm leading-relaxed max-w-2xl mx-auto">
-            Seluruh ledger keuangan, detail sandi pengguna, serta katalog foto usaha dilindungi oleh enkripsi cloud modern. Transaksi dibatasi sesuai izin ketat Sandbox guna menjamin kenyamanan bebas dari kebocoran data.
+            {language === 'id' 
+              ? 'Seluruh ledger keuangan, detail sandi pengguna, serta katalog foto usaha dilindungi oleh enkripsi cloud modern. Transaksi dibatasi sesuai izin ketat Sandbox guna menjamin kenyamanan bebas dari kebocoran data.'
+              : 'Entire financial ledgers, user credentials, and business photo catalogs are protected by modern cloud encryption. Transactions are scoped within strict Sandbox permissions to guarantee data breach prevention.'}
           </p>
         </div>
       </section>
@@ -714,19 +705,21 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
               <span className="text-xl font-bold">InMarket</span>
             </div>
             <p className="text-xs opacity-50 leading-relaxed">
-              Sistem SaaS FinTech cerdas era 2026 yang mentransformasi ekosistem keuangan gerai dagang dan waralaba UMKM lokal.
+              {language === 'id' 
+                ? 'Sistem SaaS FinTech cerdas era 2026 yang mentransformasi ekosistem keuangan gerai dagang dan waralaba UMKM lokal.'
+                : 'Smart 2026 FinTech SaaS system transforming the financial ecosystem of local MSME outlets and franchises.'}
             </p>
           </div>
           <div>
-            <h5 className="font-extrabold text-[10px] tracking-widest uppercase opacity-40 mb-4 font-mono">PRODUCT SPEC</h5>
+            <h5 className="font-extrabold text-[10px] tracking-widest uppercase opacity-40 mb-4 font-mono">{language === 'id' ? 'SPESIFIKASI PRODUK' : 'PRODUCT SPEC'}</h5>
             <ul className="space-y-2.5 text-xs opacity-70">
-              <li className="hover:text-cyan-400 cursor-pointer">Realtime Cashier POS</li>
-              <li className="hover:text-cyan-400 cursor-pointer">AI Predictive Ledger</li>
-              <li className="hover:text-cyan-400 cursor-pointer">Selfie Attendance API</li>
+              <li className="hover:text-cyan-400 cursor-pointer">{language === 'id' ? 'POS Kasir Realtime' : 'Realtime Cashier POS'}</li>
+              <li className="hover:text-cyan-400 cursor-pointer">{language === 'id' ? 'Ledger Prediktif AI' : 'AI Predictive Ledger'}</li>
+              <li className="hover:text-cyan-400 cursor-pointer">{language === 'id' ? 'API Absensi Selfie' : 'Selfie Attendance API'}</li>
             </ul>
           </div>
           <div>
-            <h5 className="font-extrabold text-[10px] tracking-widest uppercase opacity-40 mb-4 font-mono">REGULATIONS</h5>
+            <h5 className="font-extrabold text-[10px] tracking-widest uppercase opacity-40 mb-4 font-mono">{language === 'id' ? 'REGULASI' : 'REGULATIONS'}</h5>
             <ul className="space-y-2.5 text-xs opacity-70">
               <li className="hover:text-cyan-400 cursor-pointer">Terms of Ledger Agreements</li>
               <li className="hover:text-cyan-400 cursor-pointer">Privacy Sandbox Regulations</li>
@@ -734,7 +727,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
             </ul>
           </div>
           <div className="space-y-4">
-            <h5 className="font-extrabold text-[10px] tracking-widest uppercase opacity-40 font-mono font-sans">SUPPORT INTEGRATOR</h5>
+            <h5 className="font-extrabold text-[10px] tracking-widest uppercase opacity-40 font-mono font-sans">{language === 'id' ? 'INTEGRATOR DUKUNGAN' : 'SUPPORT INTEGRATOR'}</h5>
             <div className="flex gap-4 text-xs">
               <div className="hover:text-violet-500 cursor-pointer p-2 bg-white/5 rounded-full hover:shadow-[0_0_12px_rgba(139,92,246,0.3)] transition-all">
                 <Instagram size={16} />
@@ -749,7 +742,7 @@ export default function LandingPage({ onNavigate }: { onNavigate: (view: any) =>
 
         <div className="max-w-7xl mx-auto pt-8 border-t border-white/5 flex flex-col lg:flex-row justify-between items-center gap-6 text-xs font-mono">
           <div className="space-y-1 opacity-55 max-w-xl text-center lg:text-left">
-            <p>© 2026 InMarket.id Platform. Securely operating in AI-SaaS cluster. Built for premium global MSME performance.</p>
+            <p>© 2026 InMarket.id Platform. {language === 'id' ? 'Beroperasi aman di kluster AI-SaaS. Dibangun untuk performa UMKM global premium.' : 'Securely operating in AI-SaaS cluster. Built for premium global MSME performance.'}</p>
             <div className="flex justify-center lg:justify-start gap-4 text-[9px] opacity-75">
               <span>HOLOGRAPHIC PURPLE CONFIG v2.8</span>
               <span>DEPLOY: STABLE_CLOUD_RUN</span>

@@ -17,7 +17,8 @@ export default function OnboardingPopup({ onComplete }: { onComplete: () => void
     ownerName: '',
     email: '',
     phone: '',
-    country: 'Indonesia',
+    city: '',
+    address: '',
     businessType: 'Caffe'
   });
 
@@ -125,7 +126,7 @@ export default function OnboardingPopup({ onComplete }: { onComplete: () => void
                     required 
                     type="text"
                     value={formData.ownerName}
-                    placeholder={language === 'id' ? 'Nama Owner' : 'Owner / CEO Name'} 
+                    placeholder={t('ownerNamePh')} 
                     onChange={e => setFormData({...formData, ownerName: e.target.value})}
                     className="w-full p-3.5 pl-11 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl font-bold text-xs outline-none focus:border-violet-500" 
                   />
@@ -138,7 +139,7 @@ export default function OnboardingPopup({ onComplete }: { onComplete: () => void
                     required 
                     type="email"
                     value={formData.email}
-                    placeholder={language === 'id' ? 'Email Bisnis / Toko' : 'Business Contact Email'} 
+                    placeholder={t('businessEmailPh')} 
                     onChange={e => setFormData({...formData, email: e.target.value})}
                     className="w-full p-3.5 pl-11 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl font-bold text-xs outline-none focus:border-violet-500" 
                   />
@@ -157,15 +158,28 @@ export default function OnboardingPopup({ onComplete }: { onComplete: () => void
                   />
                 </div>
 
-                {/* 5. Country */}
+                {/* 5. City / Cabang */}
                 <div className="relative">
                   <div className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-40"><MapPin size={16} /></div>
                   <input 
                     required 
                     type="text"
-                    value={formData.country}
-                    placeholder={t('country')} 
-                    onChange={e => setFormData({...formData, country: e.target.value})}
+                    value={formData.city}
+                    placeholder={t('businessCityPh')} 
+                    onChange={e => setFormData({...formData, city: e.target.value})}
+                    className="w-full p-3.5 pl-11 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl font-bold text-xs outline-none focus:border-violet-500" 
+                  />
+                </div>
+
+                {/* 5b. Address / Alamat */}
+                <div className="relative">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-40"><MapPin size={16} /></div>
+                  <input 
+                    required 
+                    type="text"
+                    value={formData.address}
+                    placeholder={t('businessAddressPh')} 
+                    onChange={e => setFormData({...formData, address: e.target.value})}
                     className="w-full p-3.5 pl-11 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl font-bold text-xs outline-none focus:border-violet-500" 
                   />
                 </div>
@@ -189,7 +203,7 @@ export default function OnboardingPopup({ onComplete }: { onComplete: () => void
                     type="submit" 
                     className="w-full py-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white font-black text-xs tracking-widest uppercase rounded-xl hover:shadow-[0_0_20px_rgba(139,92,246,0.35)] transition-all cursor-pointer"
                   >
-                    🚀 {language === 'id' ? "SINKRONISASIKAN NILAI" : "PROCEED SYNCHRONIZATION"}
+                    🚀 {t('sinkronisasikanNilai')}
                   </button>
                 </div>
               </form>

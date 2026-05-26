@@ -1,6 +1,6 @@
 {
-  "name": "InMarket",
-  "description": "Smart business assistant for SMEs with modern analytics and management tools.",
+  "name": "InMarket Premium Suite",
+  "description": "Unified business management ecosystem with real-time analytics, inventory syncing, and secured financial tracking for modern SMEs.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

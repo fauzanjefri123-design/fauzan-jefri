@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { getPartitionedKey } from '../lib/utils';
+import { getPartitionedKey, safeJsonParse } from '../lib/utils';
 import { motion } from 'framer-motion';
 import { 
   DollarSign, Wifi, Lightbulb, Droplets, Home, Users, Landmark, 
-  FileSpreadsheet, ArrowDownRight, ArrowUpRight, TrendingUp, Plus, Trash2, Calendar
+  FileSpreadsheet, ArrowDownRight, ArrowUpRight, TrendingUp, Plus, Trash2, Calendar,
+  Package
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { playClickSound, playSuccessSound } from '../lib/sounds';
+import { useThemeLanguage } from '../context/ThemeLanguageContext';
+import { translations } from '../lib/translations';
 
 interface Expense {
   id: string;
@@ -28,26 +31,24 @@ const DEFAULT_EXPENSES: Expense[] = [
 ];
 
 export default function ExpensesManager() {
+  const { language } = useThemeLanguage();
+  const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
+
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     const key = getPartitionedKey('inmarket_expenses_data', true);
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : DEFAULT_EXPENSES;
+    return safeJsonParse(localStorage.getItem(key), []);
   });
 
   // Calculate global sales revenue from system transactions
-  const [revenue, setRevenue] = useState(15750000); // realistic default baseline
+  const [revenue, setRevenue] = useState(0);
 
   useEffect(() => {
     const salesKey = getPartitionedKey('inmarket_sales', true);
     const rawSales = localStorage.getItem(salesKey);
-    if (rawSales) {
-      try {
-        const parsed = JSON.parse(rawSales);
-        const calc = parsed.reduce((acc: number, cur: any) => acc + (cur.total || 0), 0);
-        // Include baseline + actual sales to maintain healthy numbers
-        setRevenue(15750000 + calc);
-      } catch (e) {}
-    }
+    const parsed = safeJsonParse(rawSales, []);
+    const calc = parsed.reduce((acc: number, cur: any) => acc + (cur.total || 0), 0);
+    // Include baseline + actual sales to maintain healthy numbers
+    setRevenue(calc);
   }, []);
 
   const [category, setCategory] = useState<'Listrik' | 'Air' | 'Wifi' | 'Sewa' | 'Beli Stock' | 'Gaji' | 'Pajak' | 'Lainnya'>('Listrik');
@@ -113,14 +114,14 @@ export default function ExpensesManager() {
     const expenseRatio = totalExpenses / (revenue || 1);
     if (expenseRatio > 0.6) {
       return {
-        status: "Tinggi / Boros ⚠️",
-        review: "Keuntungan bersih menipis! Biaya operasional sewa ruko dan belanja stok melampaui ambang produktif. Kurangi pengeluaran non-listrik dan negosiasikan sewa tahunan.",
+        status: t('profitWarning'),
+        review: t('profitWarningRec'),
         color: "text-rose-400"
       };
     } else {
       return {
-        status: "Sangat Sehat ✨",
-        review: "Laba bersenang dalam kontrol maksimal! Laba bersih operasional berada di atas 50% pendapatan total. Cocok untuk melakukan ekspansi / restock skala jumbo.",
+        status: t('profitHealthy'),
+        review: t('profitHealthyRec'),
         color: "text-emerald-400"
       };
     }
@@ -132,6 +133,7 @@ export default function ExpensesManager() {
       case 'Air': return <Droplets className="text-blue-400" size={14} />;
       case 'Wifi': return <Wifi className="text-cyan-400" size={14} />;
       case 'Sewa': return <Home className="text-emerald-450" size={14} />;
+      case 'Beli Stock': return <Package className="text-orange-400" size={14} />;
       case 'Gaji': return <Users className="text-indigo-400" size={14} />;
       case 'Pajak': return <Landmark className="text-pink-400" size={14} />;
       default: return <DollarSign className="text-zinc-400" size={14} />;
@@ -149,10 +151,10 @@ export default function ExpensesManager() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold flex items-center gap-2">
-            <DollarSign className="text-indigo-500" /> Analitik Pengeluaran & Laba Rugi
+            <DollarSign className="text-indigo-500" /> {t('analitikPengeluaran')}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Akuntansi terdesentralisasi, rekam tagihan operasional, dan laba rugi bersih otomatis.
+            {t('akuntansiTerdesentralisasi')}
           </p>
         </div>
       </div>
@@ -161,12 +163,12 @@ export default function ExpensesManager() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <div className="p-5 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 shadow-sm relative overflow-hidden flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-mono tracking-widest uppercase opacity-50 block">PENDAPATAN USAHA (REVENUE)</span>
+            <span className="text-[10px] font-mono tracking-widest uppercase opacity-50 block">{t('pendapatanUsaha')}</span>
             <strong className="text-lg md:text-xl font-extrabold text-slate-800 dark:text-white block mt-1.5">
               Rp{revenue.toLocaleString()}
             </strong>
             <span className="text-[9px] text-emerald-500 font-mono flex items-center gap-1 mt-1">
-              <ArrowUpRight size={10} /> +15.5% dari minggu lalu
+              <ArrowUpRight size={10} /> +15.5% {t('recentActivity')}
             </span>
           </div>
           <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 font-bold">
@@ -176,12 +178,12 @@ export default function ExpensesManager() {
 
         <div className="p-5 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 shadow-sm relative overflow-hidden flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-mono tracking-widest uppercase opacity-50 block">TOTAL PENGELUARAN (EXPENSE)</span>
+            <span className="text-[10px] font-mono tracking-widest uppercase opacity-50 block">{t('totalPengeluaranLabel')}</span>
             <strong className="text-lg md:text-xl font-extrabold text-[#f43f5e] block mt-1.5">
               Rp{totalExpenses.toLocaleString()}
             </strong>
             <span className="text-[9px] text-rose-500 font-mono flex items-center gap-1 mt-1">
-              <ArrowDownRight size={10} /> Akuntansi Harian Aktif
+              <ArrowDownRight size={10} /> {t('ledgerReport')}
             </span>
           </div>
           <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 font-bold">
@@ -192,12 +194,12 @@ export default function ExpensesManager() {
         <div className="p-5 rounded-3xl bg-[#090615]/90 border border-violet-500/35 shadow-[0_0_15px_rgba(139,92,246,0.15)] relative overflow-hidden flex items-center justify-between">
           <div className="absolute inset-0 bg-transparent pointer-events-none" />
           <div className="relative z-10">
-            <span className="text-[10px] font-mono tracking-widest uppercase opacity-50 text-white block">LABA BERSIH (NET PROFIT)</span>
+            <span className="text-[10px] font-mono tracking-widest uppercase opacity-50 text-white block">{t('labaBersihLabel')}</span>
             <strong className={`text-lg md:text-xl font-black block mt-1.5 ${isLoss ? 'text-rose-400' : 'text-cyan-400'}`}>
               Rp{netProfit.toLocaleString()}
             </strong>
             <span className="text-[9px] text-zinc-300 font-mono flex items-center gap-1 mt-1">
-              <TrendingUp size={10} /> Laba Rugi Asli Terverifikasi AI
+              <TrendingUp size={10} /> {t('aiFinancialAdvisor')}
             </span>
           </div>
           <div className="w-10 h-10 rounded-2xl bg-cyan-950/40 border border-cyan-400/20 flex items-center justify-center text-cyan-400 font-mono text-xs font-bold shrink-0 relative z-10">
@@ -210,40 +212,40 @@ export default function ExpensesManager() {
         {/* Left column: Add expense ledger form and list */}
         <div className="lg:col-span-5 space-y-4">
           <div className="p-5 rounded-3xl bg-white dark:bg-[#0c0817]/60 border border-indigo-100/10">
-            <h3 className="text-xs font-black uppercase tracking-widest text-[#8b5cf6] mb-4">Input Pengeluaran Operasional</h3>
+            <h3 className="text-xs font-black uppercase tracking-widest text-[#8b5cf6] mb-4">{t('inputPengeluaran')}</h3>
             <form onSubmit={handleCreateExpense} className="space-y-3.5">
               <div>
-                <label className="text-[10px] font-bold text-slate-400 block mb-1">KATEGORI PENGELUARAN</label>
+                <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('kategoriPengeluaran')}</label>
                 <select 
                   value={category}
                   onChange={e => setCategory(e.target.value as any)}
                   className="w-full p-2.5 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
                 >
-                  <option value="Listrik">⚡ Listrik (Electricity)</option>
-                  <option value="Air">💧 Air (Water Utilities)</option>
-                  <option value="Wifi">🌐 Wifi & Cloud Hosting</option>
-                  <option value="Sewa">🏢 Sewa Gedung/Ruko</option>
-                  <option value="Beli Stock">📦 Restock Gudang / Bahan Baku</option>
-                  <option value="Gaji">👥 Gaji Karyawan & Insentif</option>
-                  <option value="Pajak">🏛️ Pajak Negara / Fiskal</option>
-                  <option value="Lainnya">💰 Keperluan Usaha Lainnya</option>
+                  <option value="Listrik">⚡ {t('listrik')} (Electricity)</option>
+                  <option value="Air">💧 {t('air')} (Water Utilities)</option>
+                  <option value="Wifi">🌐 {t('wifi')} & Cloud Hosting</option>
+                  <option value="Sewa">🏢 {t('sewa')} Gedung/Ruko</option>
+                  <option value="Beli Stock">📦 {t('beliStock')} Gudang / Bahan Baku</option>
+                  <option value="Gaji">👥 {t('gaji')} Karyawan & Insentif</option>
+                  <option value="Pajak">🏛️ {t('pajak')} Negara / Fiskal</option>
+                  <option value="Lainnya">💰 {t('lainnya')} Keperluan Usaha Lainnya</option>
                 </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">JUMLAH (Rp) *</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('jumlahRp')}</label>
                   <input 
                     required
                     type="number" 
                     value={amount}
                     onChange={e => setAmount(e.target.value)}
-                    placeholder="Contoh: 850000"
+                    placeholder={t('phInput')}
                     className="w-full p-2.5 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white focus:border-violet-500"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block mb-1">TANGGAL TAGIHAN</label>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('tanggalTagihan')}</label>
                   <input 
                     type="date"
                     value={date}
@@ -254,12 +256,12 @@ export default function ExpensesManager() {
               </div>
 
               <div>
-                <label className="text-[10px] font-bold text-slate-400 block mb-1">CATATAN SINGKAT</label>
+                <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('catatanSingkat')}</label>
                 <input 
                   type="text" 
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  placeholder="Deskripsi pengeluaran..."
+                  placeholder={t('phInput')}
                   className="w-full p-2.5 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white focus:border-violet-500"
                 />
               </div>
@@ -268,14 +270,14 @@ export default function ExpensesManager() {
                 type="submit"
                 className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition duration-200"
               >
-                <Plus size={14} /> TAMBAHKAN KE BUKU KAS
+                <Plus size={14} /> {t('tambahKeBukuKas')}
               </button>
             </form>
           </div>
 
           {/* Table history list of expenses */}
           <div className="p-4 rounded-3xl bg-white dark:bg-[#0c0817]/60 border border-indigo-100/10 space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar">
-            <span className="text-[9px] uppercase font-mono tracking-widest opacity-40 block mb-2">BUKU KAS PENGELUARAN</span>
+            <span className="text-[9px] uppercase font-mono tracking-widest opacity-40 block mb-2">{t('bukuKasPengeluaran')}</span>
             {expenses.map(e => (
               <div 
                 key={e.id}
@@ -310,10 +312,10 @@ export default function ExpensesManager() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {/* Chart 1: Expenditure Category Pie */}
             <div className="p-5 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 h-64 flex flex-col justify-between">
-              <span className="text-[9px] uppercase font-mono tracking-widest opacity-50 block mb-2">PROPORSI PENGELUARAN (PIE)</span>
+              <span className="text-[9px] uppercase font-mono tracking-widest opacity-50 block mb-2">{t('proporsiPengeluaran')}</span>
               <div className="h-44">
                 {pieChartData.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-xs opacity-40 italic">Belum ada pengeluaran</div>
+                  <div className="h-full flex items-center justify-center text-xs opacity-40 italic">{t('noActivity')}</div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -348,9 +350,9 @@ export default function ExpensesManager() {
             {/* AI Advisor Panel */}
             <div className="p-5 rounded-3xl bg-[#0a0518] border border-violet-500/20 flex flex-col justify-between h-64 text-white">
               <div>
-                <span className="text-[9px] uppercase font-mono tracking-widest text-violet-400 block mb-1">AI FINANCIAL ADVISOR</span>
+                <span className="text-[9px] uppercase font-mono tracking-widest text-violet-400 block mb-1">{t('aiFinancialAdvisor')}</span>
                 <div className="flex items-center gap-2 border-b border-white/5 pb-2 mt-2">
-                  <span className="text-xs">Rasio Keuangan:</span>
+                  <span className="text-xs">{t('rasioKeuangan')}</span>
                   <span className={`text-xs font-black font-semibold ${getAIExpensesReview().color}`}>
                     {getAIExpensesReview().status}
                   </span>
@@ -361,14 +363,14 @@ export default function ExpensesManager() {
               </div>
               <div className="p-2.5 rounded-xl bg-white/5 border border-white/5 flex items-center gap-2 text-[10px] text-zinc-400">
                 <Calendar size={13} className="text-violet-450" />
-                <span>Tanggal Analisis: 21 Mei 2026</span>
+                <span>{t('tanggalAnalisis')} 21 Mei 2026</span>
               </div>
             </div>
           </div>
 
           {/* Area trend chart */}
           <div className="p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 h-64">
-            <span className="text-[10px] uppercase font-mono opacity-50 block mb-4">GRAFIK AMBANG PENGELUARAN AKTIF (TREND)</span>
+            <span className="text-[10px] uppercase font-mono opacity-50 block mb-4">{t('grafikAmbangPengeluaran')}</span>
             <div className="h-[80%]">
               {areaChartData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-xs opacity-40">No entries recorded</div>

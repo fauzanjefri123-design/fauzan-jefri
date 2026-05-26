@@ -6,6 +6,8 @@ import {
   Trash2, RefreshCw, KeyRound, AlertTriangle, LogOut 
 } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../lib/sounds';
+import { useThemeLanguage } from '../context/ThemeLanguageContext';
+import { translations } from '../lib/translations';
 
 interface LoginLog {
   id: string;
@@ -30,11 +32,18 @@ const DEFAULT_LOGS: LoginLog[] = [
 ];
 
 export default function SecurityCenter() {
+  const { language } = useThemeLanguage();
+  const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
+
   const [devices, setDevices] = useState(DEFAULT_DEVICES);
   const [logs, setLogs] = useState<LoginLog[]>(() => {
     const key = getPartitionedKey('inmarket_login_logs', false);
     const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : DEFAULT_LOGS;
+    try {
+      return saved ? JSON.parse(saved) : DEFAULT_LOGS;
+    } catch {
+      return DEFAULT_LOGS;
+    }
   });
   const [rememberMe, setRememberMe] = useState(() => {
     const key = getPartitionedKey('inmarket_remember_me', false);
@@ -42,7 +51,11 @@ export default function SecurityCenter() {
   });
 
   const [testPasswordInp, setTestPasswordInp] = useState('');
-  const [securityScanText, setSecurityScanText] = useState('Semua sistem enkripsi SSL & Firebase SHA-256 berjalan normal.');
+  const [securityScanText, setSecurityScanText] = useState(() => {
+    return language === 'id' 
+      ? 'Semua sistem enkripsi SSL & Firebase SHA-256 berjalan normal.'
+      : 'All SSL encryption & Firebase SHA-256 systems are running normally.';
+  });
   const [isScanning, setIsScanning] = useState(false);
 
   const toggleRememberMe = () => {
@@ -66,14 +79,16 @@ export default function SecurityCenter() {
     playClickSound();
     setTimeout(() => {
       setIsScanning(false);
-      setSecurityScanText('Scan Sukses: 1 IP mencurigakan (Zaporizhzhia, UA) telah diblokir secara permanen dari Cloud firewall Anda.');
+      setSecurityScanText(language === 'id' 
+        ? 'Scan Sukses: 1 IP mencurigakan (Zaporizhzhia, UA) telah diblokir secara permanen dari Cloud firewall Anda.'
+        : 'Scan Success: 1 suspicious IP (Zaporizhzhia, UA) has been permanently blocked from your Cloud firewall.');
       playSuccessSound();
     }, 1500);
   };
 
   // Check password strength calculation helper
   const getPasswordStrength = (pass: string) => {
-    if (!pass) return { rating: 'KOSONG', percent: 0, color: 'bg-zinc-700', text: 'Tulis password untuk dianalisis' };
+    if (!pass) return { rating: 'KOSONG', percent: 0, color: 'bg-zinc-700', text: language === 'id' ? 'Tulis password untuk dianalisis' : 'Type password for analysis' };
     let score = 0;
     if (pass.length > 6) score++;
     if (/[A-Z]/.test(pass)) score++;
@@ -81,13 +96,33 @@ export default function SecurityCenter() {
     if (/[^A-Za-z0-9]/.test(pass)) score++;
 
     if (score <= 1) {
-      return { rating: 'SANGAT LEMAH 🔴', percent: 25, color: 'bg-rose-500', text: 'Tambahkan angka, simbol, dan kombinasi huruf kapital.' };
+      return { 
+        rating: language === 'id' ? 'SANGAT LEMAH 🔴' : 'VERY WEAK 🔴', 
+        percent: 25, 
+        color: 'bg-rose-500', 
+        text: language === 'id' ? 'Tambahkan angka, simbol, dan kombinasi huruf kapital.' : 'Add numbers, symbols, and capital letter combinations.' 
+      };
     } else if (score === 2) {
-      return { rating: 'SEDANG 🟡', percent: 50, color: 'bg-amber-500', text: 'Hampir aman! Pertimbangkan menambahkan simbol acak seperti @, #, $.' };
+      return { 
+        rating: language === 'id' ? 'SEDANG 🟡' : 'MEDIUM 🟡', 
+        percent: 50, 
+        color: 'bg-amber-500', 
+        text: language === 'id' ? 'Hampir aman! Pertimbangkan menambahkan simbol acak seperti @, #, $.' : 'Almost secure! Consider adding random symbols like @, #, $.' 
+      };
     } else if (score === 3) {
-      return { rating: 'KUAT 🟢', percent: 75, color: 'bg-indigo-400', text: 'Password kuat dan aman dari serangan brute-force.' };
+      return { 
+        rating: language === 'id' ? 'KUAT 🟢' : 'STRONG 🟢', 
+        percent: 75, 
+        color: 'bg-indigo-400', 
+        text: language === 'id' ? 'Password kuat dan aman dari serangan brute-force.' : 'Password is strong and safe from brute-force attacks.' 
+      };
     } else {
-      return { rating: 'SEMPURNA (MILITARY GRADE) 🔥', percent: 100, color: 'bg-emerald-500', text: 'Password sangat tangguh, terenkripsi sempurna.' };
+      return { 
+        rating: language === 'id' ? 'SEMPURNA (MILITARY GRADE) 🔥' : 'PERFECT (MILITARY GRADE) 🔥', 
+        percent: 100, 
+        color: 'bg-emerald-500', 
+        text: language === 'id' ? 'Password sangat tangguh, terenkripsi sempurna.' : 'Password is very tough, perfectly encrypted.' 
+      };
     }
   };
 
@@ -98,10 +133,10 @@ export default function SecurityCenter() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold flex items-center gap-2">
-            <ShieldCheck className="text-emerald-500" /> Pusat Keamanan Akun & Session Logs
+            <ShieldCheck className="text-emerald-500" /> {t('pusatKeamanan')}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Kelola session token, sensor ancaman AI, block IP, and device verification dashboard.
+            {t('securityControlInfo')}
           </p>
         </div>
       </div>
@@ -119,7 +154,7 @@ export default function SecurityCenter() {
               </div>
             </div>
             <div>
-              <h3 className="text-sm font-black tracking-widest uppercase">ENKRIPSI ACTIVE MILIK CA</h3>
+              <h3 className="text-sm font-black tracking-widest uppercase">{t('encryptionActiveCA')}</h3>
               <span className="text-[9px] font-mono opacity-50 block mt-1">NODE: CA_JAK_SSL_VERIFIED_2026</span>
             </div>
             
@@ -134,14 +169,14 @@ export default function SecurityCenter() {
               disabled={isScanning}
               className={`w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:brightness-110 text-white rounded-xl text-xs font-black uppercase tracking-widest transition ${isScanning ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              {isScanning ? '⚡ MEMINDAI MALWARE...' : '🔍 JALANKAN AI SECURITY SCAN'}
+              {isScanning ? t('scanningMalware') : t('jalankanScan')}
             </button>
 
             {/* Remember me trigger */}
             <div className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl text-xs">
               <div>
-                <span className="font-bold block">Ingat Saya (Keep Connected)</span>
-                <span className="text-[9px] opacity-40">Mencegah log out otomatis 15 menit</span>
+                <span className="font-bold block">{t('ingatSaya')}</span>
+                <span className="text-[9px] opacity-40">{t('mencegahLogout')}</span>
               </div>
               <input 
                 type="checkbox" 
@@ -157,12 +192,12 @@ export default function SecurityCenter() {
         <div className="lg:col-span-8 space-y-6">
           <div className="p-5 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 space-y-4">
             <div className="flex justify-between items-center border-b border-indigo-100/10 pb-3">
-              <h3 className="text-xs font-black uppercase tracking-widest text-indigo-500">Device Management (Sesi Aktif)</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-indigo-500">{t('deviceManagement')}</h3>
               <button 
                 onClick={handleLogoutAllDevices}
                 className="text-[9.5px] uppercase font-black tracking-wider text-rose-500 flex items-center gap-1 hover:underline"
               >
-                <LogOut size={12} /> Logout Semua Perangkat Lain
+                <LogOut size={12} /> {t('logoutSemuaPerangkat')}
               </button>
             </div>
 
@@ -180,7 +215,7 @@ export default function SecurityCenter() {
                       <strong className="text-slate-800 dark:text-zinc-200 block">
                         {d.name} {d.isCurrent && <span className="text-[8px] bg-emerald-500 text-white font-mono px-1.5 py-0.5 rounded ml-1 font-bold">CURRENT_SESSION</span>}
                       </strong>
-                      <span className="text-[9.5px] opacity-40 font-mono">IP: {d.ip} • Terakhir Terdeteksi: {d.date}</span>
+                      <span className="text-[9.5px] opacity-40 font-mono">IP: {d.ip} • {language === 'id' ? 'Terakhir Terdeteksi' : 'Last Detected'}: {d.date}</span>
                     </div>
                   </div>
                 </div>
@@ -191,18 +226,18 @@ export default function SecurityCenter() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {/* Password Audit Center */}
             <div className="p-5 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 space-y-3">
-              <span className="text-[9px] font-mono tracking-widest uppercase opacity-45 block">PASSWORD RESILIENCE AUDIT</span>
+              <span className="text-[9px] font-mono tracking-widest uppercase opacity-45 block">{t('passwordResilienceAudit')}</span>
               <div className="space-y-3">
                 <input 
                   type="password"
-                  placeholder="Ketik password untuk audit..."
+                  placeholder={t('ketikPasswordAudit')}
                   value={testPasswordInp}
                   onChange={e => setTestPasswordInp(e.target.value)}
                   className="w-full p-2.5 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-semibold outline-none text-slate-800 dark:text-white"
                 />
                 <div className="space-y-1">
                   <div className="flex justify-between items-center text-[10px] font-bold">
-                    <span>Kekuatan Password:</span>
+                    <span>{t('kekuatanPassword')}</span>
                     <span className="text-[9.5px]">{passRating.rating}</span>
                   </div>
                   <div className="w-full h-1.5 bg-black/20 rounded-full overflow-hidden">
@@ -217,7 +252,7 @@ export default function SecurityCenter() {
 
             {/* Suspicious Activities Log list */}
             <div className="p-5 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 space-y-3.5 max-h-[220px] overflow-y-auto custom-scrollbar">
-              <span className="text-[9px] font-mono tracking-widest uppercase opacity-45 block">SEKURITI AUDIT TRAIL LOGS</span>
+              <span className="text-[9px] font-mono tracking-widest uppercase opacity-45 block">{t('sekuritiAuditLogs')}</span>
               <div className="space-y-2">
                 {logs.map(log => (
                   <div key={log.id} className="p-2 bg-black/5 dark:bg-white/5 rounded-xl text-[10px] border border-indigo-100/5 flex items-center justify-between gap-2.5">
@@ -229,7 +264,7 @@ export default function SecurityCenter() {
                     <span className={`text-[8px] tracking-wide px-2 py-0.5 rounded font-black font-mono shrink-0 ${
                       log.status === 'Aman' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-450 border border-rose-500/20'
                     }`}>
-                      {log.status.toUpperCase()}
+                      {t(log.status.toLowerCase() as any).toUpperCase()}
                     </span>
                   </div>
                 ))}

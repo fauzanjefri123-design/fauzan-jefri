@@ -6,6 +6,8 @@ import {
   Tag, Compass, Calendar, Volume2, ShieldAlert
 } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../lib/sounds';
+import { useThemeLanguage } from '../context/ThemeLanguageContext';
+import { translations } from '../lib/translations';
 
 interface Coupon {
   id: string;
@@ -24,10 +26,17 @@ const DEFAULT_COUPONS: Coupon[] = [
 ];
 
 export default function PromoManager() {
+  const { language } = useThemeLanguage();
+  const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
+
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
     const key = getPartitionedKey('inmarket_coupons_data', false);
     const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : DEFAULT_COUPONS;
+    try {
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
   const [code, setCode] = useState('');
@@ -109,10 +118,10 @@ export default function PromoManager() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold flex items-center gap-2">
-            <Flame className="text-rose-500 animate-pulse" /> Kampanye Promosi & E-Voucher
+            <Flame className="text-rose-500 animate-pulse" /> {t('kampanyePromosi')}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Buat diskon musiman, voucher cashback, paket buy-one-get-one, dan atur kupon flash sale.
+            {t('promoManagementInfo')}
           </p>
         </div>
       </div>
@@ -122,13 +131,13 @@ export default function PromoManager() {
         <div className="absolute top-[-30px] right-[-30px] w-44 h-44 bg-pink-500/10 rounded-full blur-3xl animate-pulse" />
         <div className="space-y-2 text-center md:text-left relative z-10">
           <span className="px-3 py-1 bg-red-600 text-[10px] uppercase font-black tracking-widest rounded-full animate-bounce inline-block">
-            🔥 FLASH SALE EXTREME ACTIVE
+            {t('flashSaleExtreme')}
           </span>
           <h3 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-pink-400 to-rose-400">
-            Dapatkan diskon 50% untuk kategori Matcha & Croissant!
+            {t('flashSaleInfo')}
           </h3>
           <p className="text-[11px] text-zinc-300 flex items-center justify-center md:justify-start gap-1">
-            <Clock size={12} className="text-rose-400 animate-spin" style={{ animationDuration: '4s' }} /> Berakhir sebentar lagi secara otomatis.
+            <Clock size={12} className="text-rose-400 animate-spin" style={{ animationDuration: '4s' }} /> {t('endsSoon')}
           </p>
         </div>
 
@@ -136,21 +145,21 @@ export default function PromoManager() {
         <div className="flex items-center gap-2 font-mono relative z-10">
           <div className="bg-black/50 border border-rose-500/40 p-3 rounded-2xl w-14 text-center">
             <span className="text-lg font-black tracking-wider text-rose-450 block">0{timeLeft.Jam}</span>
-            <span className="text-[8px] text-zinc-400">HOURS</span>
+            <span className="text-[8px] text-zinc-400">{t('hours')}</span>
           </div>
           <span className="text-lg font-black text-rose-500 flex animate-ping">:</span>
           <div className="bg-black/50 border border-rose-500/40 p-3 rounded-2xl w-14 text-center">
             <span className="text-lg font-black tracking-wider text-rose-450 block">
               {timeLeft.Menit < 10 ? `0${timeLeft.Menit}` : timeLeft.Menit}
             </span>
-            <span className="text-[8px] text-zinc-400">MINS</span>
+            <span className="text-[8px] text-zinc-400">{t('mins')}</span>
           </div>
           <span className="text-lg font-black text-rose-500 flex animate-ping">:</span>
           <div className="bg-black/50 border border-rose-500/40 p-3 rounded-2xl w-14 text-center">
             <span className="text-lg font-black tracking-wider text-amber-400 block">
               {timeLeft.Detik < 10 ? `0${timeLeft.Detik}` : timeLeft.Detik}
             </span>
-            <span className="text-[8px] text-zinc-400">SECS</span>
+            <span className="text-[8px] text-zinc-400">{t('secs')}</span>
           </div>
         </div>
       </div>
@@ -158,50 +167,50 @@ export default function PromoManager() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Creation Input Section */}
         <div className="lg:col-span-4 p-5 rounded-3xl bg-white dark:bg-[#0c0817]/60 border border-indigo-100/10">
-          <h3 className="text-xs font-black uppercase tracking-widest text-rose-500 mb-4">Buat Kupon Campaign</h3>
+          <h3 className="text-xs font-black uppercase tracking-widest text-rose-500 mb-4">{t('buatKuponCampaign')}</h3>
           <form onSubmit={handleCreateCoupon} className="space-y-3.5">
             <div>
-              <label className="text-[10px] font-bold text-slate-400 block mb-1">KODE COUPON (HURUF BESAR)</label>
+              <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('kodeCoupon')}</label>
               <input 
                 required 
                 type="text" 
                 value={code}
                 onChange={e => setCode(e.target.value)}
-                placeholder="CONTOH: MATCHAFEST26"
+                placeholder={t('phInput')}
                 className="w-full p-2.5 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white uppercase focus:border-rose-500"
               />
             </div>
 
             <div>
-              <label className="text-[10px] font-bold text-slate-400 block mb-1">TIPE PROMOSI</label>
+              <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('tipePromosi')}</label>
               <select 
                 value={type}
                 onChange={e => setType(e.target.value as any)}
                 className="w-full p-2.5 bg-[#0d0721] border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-white focus:border-rose-500"
               >
-                <option value="diskon">✂️ Diskon Persentase (%)</option>
-                <option value="cashback">💰 Cashback Flat Saldo (Rp)</option>
-                <option value="buy_1_get_1">☕ Buy 1 Get 1 (BOGO)</option>
-                <option value="flash_sale">⚡ Flash Sale Kilat</option>
-                <option value="voucher">🎟️ Voucher Pemotongan Harga (Flat Rp)</option>
-                <option value="promo_harian">📆 Promo Harian Outlet</option>
+                <option value="diskon">{t('diskonPersentase')}</option>
+                <option value="cashback">{t('cashbackFlat')}</option>
+                <option value="buy_1_get_1">{t('buy1Get1')}</option>
+                <option value="flash_sale">{t('flashSaleKilat')}</option>
+                <option value="voucher">{t('voucherPemotongan')}</option>
+                <option value="promo_harian">{t('promoHarian')}</option>
               </select>
             </div>
 
             <div className="grid grid-cols-2 gap-3.5">
               <div>
-                <label className="text-[10px] font-bold text-slate-400 block mb-1">NILAI / JUMLAH *</label>
+                <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('nilaiJumlah')}</label>
                 <input 
                   required
                   type="number" 
                   value={value}
                   onChange={e => setValue(e.target.value)}
-                  placeholder="Contoh: 20 atau 15000"
+                  placeholder={t('phInput')}
                   className="w-full p-2.5 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white focus:border-rose-500"
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-400 block mb-1">EXPIRED DATE</label>
+                <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('expiredDate')}</label>
                 <input 
                   type="date"
                   value={expiresAt}
@@ -212,11 +221,11 @@ export default function PromoManager() {
             </div>
 
             <div>
-              <label className="text-[10px] font-bold text-slate-400 block mb-1">DESKRIPSI CAMPAIGN</label>
+              <label className="text-[10px] font-bold text-slate-400 block mb-1">{t('deskripsiCampaign')}</label>
               <textarea 
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="Rincian ketentuan klaim..."
+                placeholder={t('phInput')}
                 rows={2}
                 className="w-full p-2.5 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white focus:border-rose-500"
               />
@@ -226,7 +235,7 @@ export default function PromoManager() {
               type="submit"
               className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition"
             >
-              <Plus size={14} /> LIVE-KAN PROMO DI KASIR
+              <Plus size={14} /> {t('liveKanPromo')}
             </button>
           </form>
         </div>
@@ -261,11 +270,11 @@ export default function PromoManager() {
 
                 <div className="flex justify-between items-end border-t border-white/10 pt-2 shrink-0">
                   <div>
-                    <span className="text-[8px] opacity-50 block font-mono">BATAS EXPIRED</span>
+                    <span className="text-[8px] opacity-50 block font-mono">{t('batasExpired')}</span>
                     <strong className="text-[10px] font-mono">{c.expiresAt}</strong>
                   </div>
                   <div>
-                    <span className="text-[8px] opacity-50 block text-right">BENEFIT</span>
+                    <span className="text-[8px] opacity-50 block text-right">{t('benefit')}</span>
                     <strong className="text-sm font-extrabold">
                       {c.type === 'buy_1_get_1' ? 'GET 1 FREE 🔥' : c.type === 'cashback' ? `Rp${c.value.toLocaleString()}` : `${c.value}% OFF`}
                     </strong>

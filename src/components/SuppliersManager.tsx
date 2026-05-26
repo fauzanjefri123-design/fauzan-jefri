@@ -5,6 +5,8 @@ import {
   Sparkles, History, Check, AlertTriangle 
 } from 'lucide-react';
 import { playClickSound, playSuccessSound } from '../lib/sounds';
+import { useThemeLanguage } from '../context/ThemeLanguageContext';
+import { translations } from '../lib/translations';
 
 interface Supplier {
   id: string;
@@ -65,10 +67,17 @@ const DEFAULT_SUPPLIERS: Supplier[] = [
 ];
 
 export default function SuppliersManager() {
+  const { language } = useThemeLanguage();
+  const t = (key: keyof typeof translations.id) => translations[language]?.[key] || key;
+
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
     const key = getPartitionedKey('inmarket_suppliers_data', false);
     const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : DEFAULT_SUPPLIERS;
+    try {
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -149,14 +158,14 @@ export default function SuppliersManager() {
         found: true,
         supplierName: matching.name,
         contact: matching.phone,
-        reason: `Supplier ${matching.name} adalah kontak terfavorit atau termurah untuk memasok bahan terkait "${productName}" berdasarkan akurasi histori pembelian.`
+        reason: `Supplier ${matching.name} ${language === 'id' ? 'adalah kontak terfavorit atau termurah untuk memasok bahan terkait' : 'is the favorite or cheapest contact to supply materials related to'} "${productName}" ${language === 'id' ? 'berdasarkan akurasi histori pembelian.' : 'based on purchase history accuracy.'}`
       };
     } else {
       return {
         found: false,
         supplierName: suppliers[0]?.name || 'Sumatra Roast Node',
         contact: suppliers[0]?.phone || '081223344556',
-        reason: `Belum ada supplier yang secara presisi terhubung dengan kategori "${productName}". Kami merekomendasikan supplier utama (${suppliers[0]?.name || 'Sumatra Roast Node'}) sebagai alternatif pengadaan umum.`
+        reason: `${language === 'id' ? 'Belum ada supplier yang secara presisi terhubung dengan kategori' : 'No supplier is precisely linked to category'} "${productName}". ${language === 'id' ? 'Kami merekomendasikan supplier utama' : 'We recommend main supplier'} (${suppliers[0]?.name || 'Sumatra Roast Node'}) ${language === 'id' ? 'sebagai alternatif pengadaan umum.' : 'as a general procurement alternative.'}`
       };
     }
   };
@@ -171,17 +180,17 @@ export default function SuppliersManager() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold flex items-center gap-2">
-            <Truck className="text-indigo-500" /> Manajemen Rantai Pasokan & Supplier
+            <Truck className="text-indigo-500" /> {t('rantaiPasokan')}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Pencatatan rincian logistik, inventori bahan baku, histori grosir, dan Rekomendasi Restock AI.
+            {t('supplyChainInfo')}
           </p>
         </div>
         <button 
           onClick={() => { playClickSound(); setShowAddForm(true); }}
           className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-2 transition"
         >
-          <Plus size={15} /> Tambah Supplier
+          <Plus size={15} /> {t('tambahSupplier')}
         </button>
       </div>
 
@@ -194,8 +203,8 @@ export default function SuppliersManager() {
         
         <div className="flex-1 space-y-2 text-center md:text-left">
           <div className="flex flex-wrap items-center gap-2 justify-center md:justify-start">
-            <span className="px-2 py-0.5 bg-violet-950 text-violet-400 font-mono text-[9px] rounded-full border border-violet-500/30">AI SUPPLY CO-PILOT</span>
-            <span className="text-[10px] text-zinc-400">Pindai Bahan Baku Kritis:</span>
+            <span className="px-2 py-0.5 bg-violet-950 text-violet-400 font-mono text-[9px] rounded-full border border-violet-500/30">{t('aiSupplyCoPilot')}</span>
+            <span className="text-[10px] text-zinc-400">{language === 'id' ? 'Pindai Bahan Baku Kritis' : 'Scan Critical Raw Materials'}:</span>
             <select 
               value={mockShortageItem}
               onChange={e => setMockShortageItem(e.target.value)}
@@ -208,7 +217,7 @@ export default function SuppliersManager() {
             </select>
           </div>
           <p className="text-xs text-zinc-300 leading-relaxed font-semibold">
-            <strong className="text-emerald-400">Rekomendasi Restock:</strong> {getAIRecommendation(mockShortageItem).reason} (Saran Kontak: <span className="font-mono text-cyan-400">{getAIRecommendation(mockShortageItem).contact}</span>)
+            <strong className="text-emerald-400">{t('restockRec')}</strong> {getAIRecommendation(mockShortageItem).reason} ({language === 'id' ? 'Saran Kontak' : 'Contact Suggestion'}: <span className="font-mono text-cyan-400">{getAIRecommendation(mockShortageItem).contact}</span>)
           </p>
         </div>
       </div>
@@ -220,7 +229,7 @@ export default function SuppliersManager() {
             <Search className="absolute left-3.5 top-3.5 text-slate-400" size={16} />
             <input 
               type="text"
-              placeholder="Cari supplier atau klasifikasi barang..."
+              placeholder={language === 'id' ? 'Cari supplier atau klasifikasi barang...' : 'Search supplier or goods category...'}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-3 bg-black/5 dark:bg-white/5 border border-indigo-100/10 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
@@ -280,7 +289,7 @@ export default function SuppliersManager() {
                   <p className="text-[10px] opacity-50 font-mono mt-0.5">Supplier ID: {selectedSupplier.id}</p>
                 </div>
                 <span className="px-3 py-1 bg-indigo-500/10 border border-indigo-400/20 text-indigo-500 dark:text-indigo-400 text-[10px] rounded-full font-black uppercase tracking-widest">
-                  {selectedSupplier.isFavorite ? '🔑 UTAMA (FAVORIT)' : 'REGULER LOGISTIK'}
+                  {selectedSupplier.isFavorite ? t('supplierMainFavorite') : t('regulerLogistik')}
                 </span>
               </div>
 
@@ -289,14 +298,14 @@ export default function SuppliersManager() {
                 <div className="p-3 bg-black/5 dark:bg-white/5 border border-indigo-100/5 rounded-xl flex items-center gap-3">
                   <Phone size={14} className="text-indigo-400" />
                   <div>
-                    <span className="text-[9px] opacity-40 block font-mono">KONTAK WHATSAPP</span>
+                    <span className="text-[9px] opacity-40 block font-mono">{t('kontakHubungan')}</span>
                     <strong className="text-xs font-semibold">{selectedSupplier.phone}</strong>
                   </div>
                 </div>
                 <div className="p-3 bg-black/5 dark:bg-white/5 border border-indigo-100/5 rounded-xl flex items-center gap-3">
                   <MapPin size={14} className="text-rose-400" />
                   <div>
-                    <span className="text-[9px] opacity-40 block font-mono">ALAMAT PUSAT</span>
+                    <span className="text-[9px] opacity-40 block font-mono">{t('alamatGudangPusat')}</span>
                     <strong className="text-xs font-semibold truncate max-w-[200px] block">{selectedSupplier.address}</strong>
                   </div>
                 </div>
@@ -304,7 +313,7 @@ export default function SuppliersManager() {
 
               {/* Products capability */}
               <div className="space-y-2">
-                <span className="text-[9px] uppercase font-mono tracking-widest opacity-40 block">SPESIFIKASI PRODUK PASOKAN</span>
+                <span className="text-[9px] uppercase font-mono tracking-widest opacity-40 block">{t('barangPasokan')}</span>
                 <div className="flex flex-wrap gap-1.5 animate-pulse">
                   {selectedSupplier.productsProvided.map((prod, id) => (
                     <span key={id} className="text-[10px] px-2.5 py-1 bg-cyan-500/10 border border-cyan-400/20 text-cyan-600 dark:text-cyan-400 rounded-lg font-bold flex items-center gap-1.5">
@@ -317,19 +326,19 @@ export default function SuppliersManager() {
               {/* Sourcing History */}
               <div className="space-y-3.5">
                 <h4 className="text-[10px] font-black uppercase text-indigo-500 flex items-center gap-1.5">
-                  <History size={12} /> HISTORI PEMBELIAN GROSIR (PREMIUM RESOURCING)
+                  <History size={12} /> {t('historiPembelianGrosir')}
                 </h4>
                 <div className="space-y-2">
                   {selectedSupplier.purchaseHistory.length === 0 ? (
                     <div className="p-6 text-center text-xs opacity-40 border border-dashed border-indigo-100/15 rounded-xl">
-                      Belum ada pemesanan tercatat pada supplier ini.
+                      {t('noActivity')}
                     </div>
                   ) : (
                     selectedSupplier.purchaseHistory.map((hist, idx) => (
                       <div key={idx} className="p-3 bg-black/5 dark:bg-white/5 rounded-xl border border-indigo-100/5 flex items-center justify-between text-xs">
                         <div>
                           <strong className="text-slate-800 dark:text-slate-200 block">{hist.item}</strong>
-                          <span className="text-[9px] opacity-40 font-mono">Pemasukan: Qty {hist.qty} • {hist.date}</span>
+                          <span className="text-[9px] opacity-40 font-mono">{language === 'id' ? 'Pemasukan' : 'Procuerement'}: Qty {hist.qty} • {hist.date}</span>
                         </div>
                         <span className="font-extrabold text-indigo-400 font-mono">Rp{hist.cost.toLocaleString()}</span>
                       </div>
@@ -341,7 +350,7 @@ export default function SuppliersManager() {
           ) : (
             <div className="h-64 flex flex-col items-center justify-center border border-indigo-100/10 rounded-3xl bg-white/5 text-slate-400">
               <Truck size={24} className="mb-2" />
-              <p className="text-xs">Silakan pilih supplier untuk melihat rincian.</p>
+              <p className="text-xs">{t('pilihSupplierInfo')}</p>
             </div>
           )}
         </div>
@@ -352,35 +361,35 @@ export default function SuppliersManager() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm">
           <div className="w-full max-w-md p-6 bg-[#090615] rounded-3xl border border-indigo-500/20 text-white space-y-4 shadow-xl">
             <div className="flex justify-between items-center border-b border-white/5 pb-2">
-              <h3 className="text-xs font-black uppercase tracking-wider text-indigo-400">Registrasi Supplier Baru</h3>
+              <h3 className="text-xs font-black uppercase tracking-wider text-indigo-400">{t('registrasiSupplierBaru')}</h3>
               <button onClick={() => { playClickSound(); setShowAddForm(false); }} className="text-xs font-black hover:text-white">&times;</button>
             </div>
 
             <form onSubmit={handleAddSupplier} className="space-y-3.5">
               <div>
-                <label className="text-[9px] font-bold text-slate-400 block mb-1">NAMA SUPPLIER/COMPANY *</label>
-                <input required type="text" placeholder="Contoh: Sumatra Roast Node" value={name} onChange={e => setName(e.target.value)} className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none" />
+                <label className="text-[9px] font-bold text-slate-400 block mb-1">{t('namaSupplierCompany')} *</label>
+                <input required type="text" placeholder={t('phInput')} value={name} onChange={e => setName(e.target.value)} className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none" />
               </div>
               <div>
-                <label className="text-[9px] font-bold text-slate-400 block mb-1">KONTAK HUBUNGAN (HP) *</label>
+                <label className="text-[9px] font-bold text-slate-400 block mb-1">{t('kontakHubungan')} *</label>
                 <input required type="text" placeholder="081xxxxxxxxxx" value={phone} onChange={e => setPhone(e.target.value)} className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none" />
               </div>
               <div>
-                <label className="text-[9px] font-bold text-slate-400 block mb-1">ALAMAT GUDANG PUSAT</label>
-                <input type="text" placeholder="Lintong, Toba Samosir" value={address} onChange={e => setAddress(e.target.value)} className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none" />
+                <label className="text-[9px] font-bold text-slate-400 block mb-1">{t('alamatGudangPusat')}</label>
+                <input type="text" placeholder={t('phInput')} value={address} onChange={e => setAddress(e.target.value)} className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none" />
               </div>
               <div>
-                <label className="text-[9px] font-bold text-slate-400 block mb-1">BARANG PASOKAN (Pisahkan dengan koma)</label>
-                <input type="text" placeholder="Espresso, Kopi robusta, Gula aren" value={productsText} onChange={e => setProductsText(e.target.value)} className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none" />
+                <label className="text-[9px] font-bold text-slate-400 block mb-1">{t('barangPasokan')} ({language === 'id' ? 'Pisahkan dengan koma' : 'Separate with comma'})</label>
+                <input type="text" placeholder={t('phInput')} value={productsText} onChange={e => setProductsText(e.target.value)} className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none" />
               </div>
 
               <div className="flex items-center gap-2 py-1">
                 <input type="checkbox" id="fav_sup" checked={isFavorite} onChange={e => setIsFavorite(e.target.checked)} className="rounded" />
-                <label htmlFor="fav_sup" className="text-[10px] font-bold text-slate-300">Set sebagai Supplier Utama (Favorit) ⭐</label>
+                <label htmlFor="fav_sup" className="text-[10px] font-bold text-slate-300">{t('setSebagaiSupplierUtama')}</label>
               </div>
 
               <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase">
-                🚀 REGISTER SUPPLIER KE SISTEM
+                🚀 {t('registerSupplierKeSistem')}
               </button>
             </form>
           </div>

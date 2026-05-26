@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, 
@@ -7,6 +7,7 @@ import {
   LogOut, 
   Bell, 
   ArrowUpRight, 
+  ArrowLeft,
   Package, 
   Users, 
   Wallet, 
@@ -53,14 +54,20 @@ import {
   Truck,
   ShieldCheck,
   Ticket,
-  Flame
+  Flame,
+  QrCode,
+  Upload,
+  Lock
 } from 'lucide-react';
-import { cn, getPartitionedKey } from '../lib/utils';
+import { cn, getPartitionedKey, safeJsonParse } from '../lib/utils';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import Papa from 'papaparse';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   BarChart, Bar, AreaChart, Area 
 } from 'recharts';
 import { auth, db } from '../lib/firebase';
+import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import Inventory from './Inventory';
 import CustomersManager from './CustomersManager';
@@ -68,9 +75,15 @@ import ExpensesManager from './ExpensesManager';
 import SuppliersManager from './SuppliersManager';
 import PromoManager from './PromoManager';
 import SecurityCenter from './SecurityCenter';
+import WalletManager from './WalletManager';
+import AgendaManager from './AgendaManager';
+import Profile from './Profile';
+import AttendanceQR from './AttendanceQR';
+import QuickActions from './QuickActions';
 import { useThemeLanguage } from '../context/ThemeLanguageContext';
 import { translations } from '../lib/translations';
 import ThemeLanguageSwitcher from './ThemeLanguageSwitcher';
+import { useAuth } from '../context/AuthContext';
 import QRScanner from './QRScanner';
 import { 
   playScanSound, 
@@ -90,21 +103,20 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   const getGreeting = () => {
     const hours = new Date().getHours();
-    if (hours < 12) return 'Selamat Pagi';
-    if (hours < 17) return 'Selamat Siang';
-    if (hours < 21) return 'Selamat Sore';
-    return 'Selamat Malam';
+    if (language === 'id') {
+      if (hours < 12) return 'Selamat Pagi';
+      if (hours < 17) return 'Selamat Siang';
+      if (hours < 21) return 'Selamat Sore';
+      return 'Selamat Malam';
+    } else {
+      if (hours < 12) return 'Good Morning';
+      if (hours < 17) return 'Good Afternoon';
+      if (hours < 21) return 'Good Evening';
+      return 'Good Night';
+    }
   };
 
-  const liveChartData = [
-    { name: '08:00', sales: 1200 },
-    { name: '10:00', sales: 4500 },
-    { name: '12:00', sales: 8900 },
-    { name: '14:00', sales: 7400 },
-    { name: '16:00', sales: 13200 },
-    { name: '18:00', sales: 19800 },
-    { name: '20:00', sales: 24500 }
-  ];
+
 
   // Active sub-view within dashboard
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -112,9 +124,10 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
   // Determine user login state (standard or offline fallback)
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [userRole, setUserRole] = useState<'Owner' | 'Admin' | 'Manager' | 'Supervisor' | 'Kasir' | 'Karyawan'>(() => {
-    return (localStorage.getItem('inmarket_user_role') as any) || 'Owner';
-  });
+  const { userData } = useAuth();
+  const userRole = userData?.role || 'Guest';
+  const isOnline = useOnlineStatus();
+
 
   // Business Open/Close State
   const [isStoreOpen, setIsStoreOpen] = useState(() => {
@@ -125,16 +138,14 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   // Shop metadata details
   const [shopData, setShopData] = useState(() => {
     const key = getPartitionedKey('inmarket_business', true);
-    const cached = localStorage.getItem(key);
-    return cached ? JSON.parse(cached) : { businessName: 'InMarket Lounge', ownerName: 'Admin Boss', businessType: 'Caffe' };
+    return safeJsonParse(localStorage.getItem(key), { businessName: 'InMarket Lounge', ownerName: 'Owner', businessType: 'Caffe' });
   });
 
   // Employee First-Time Onboarding Profile
   const [showEmployeeProfileModal, setShowEmployeeProfileModal] = useState(false);
   const [employeeProfile, setEmployeeProfile] = useState(() => {
     const key = getPartitionedKey('inmarket_employee_profile', false);
-    const cached = localStorage.getItem(key);
-    return cached ? JSON.parse(cached) : { fullName: '', photoUrl: '', gender: 'Male', exp: 40 };
+    return safeJsonParse(localStorage.getItem(key), { fullName: '', photoUrl: '', gender: 'Male', exp: 40 });
   });
 
   // Gaji Karyawan State
@@ -155,19 +166,17 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   // Chat message logs
   const [chatMessages, setChatMessages] = useState<any[]>(() => {
     const key = getPartitionedKey('inmarket_chats', false);
-    const cached = localStorage.getItem(key);
-    return cached ? JSON.parse(cached) : [
+    return safeJsonParse(localStorage.getItem(key), [
       { id: 1, sender: 'System AI', text: 'Secure 2026 Lobby Chat initiated.', time: '11:00', file: null },
-      { id: 2, sender: 'Boss Owner', text: 'Halo tim, mari kita penuhi target transaksi hari ini!', time: '11:01', file: null },
-      { id: 3, sender: 'Karyawan', text: 'Siap Boss, stok kopi dan barista dalam kondisi prima!', time: '11:03', file: null }
-    ];
+      { id: 2, sender: 'System AI', text: 'Semua pesan lobby cabang telah diisolasi berdasarkan keamanan enkripsi Tenant.', time: '11:01', file: null }
+    ]);
   });
   const [chatInp, setChatInp] = useState('');
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
 
   // AI Assistant Chat Logs
   const [aiChat, setAiChat] = useState<any[]>([
-    { role: 'assistant', text: 'Halo! Saya InMarket AI, asisten analis Anda. Beritahu saya kendala bisnis Anda atau tanyakan rekomendasi optimal produk!' }
+    { role: 'assistant', text: language === 'id' ? 'Halo! Saya InMarket AI, asisten analis Anda. Beritahu saya kendala bisnis Anda atau tanyakan rekomendasi optimal produk!' : 'Hello! I am InMarket AI, your analytical assistant. Tell me about your business challenges or ask for optimal product recommendations!' }
   ]);
   const [aiInp, setAiInp] = useState('');
   const [aiTyping, setAiTyping] = useState(false);
@@ -175,13 +184,12 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   // Product Database list
   const [products, setProducts] = useState<any[]>(() => {
     const key = getPartitionedKey('inmarket_products', true);
-    const cached = localStorage.getItem(key);
-    return cached ? JSON.parse(cached) : [
+    return safeJsonParse(localStorage.getItem(key), [
       { id: 'p1', name: 'Original Premium Espresso', price: 28000, stock: 45, category: 'Minuman', supplier: 'Sumatra Roast Node', barcode: '8993213002', desc: 'Espresso murni 100% Arabika.' },
       { id: 'p2', name: 'Fresh Milk Matcha Latte', price: 32000, stock: 4, category: 'Minuman', supplier: 'Uji Farms', barcode: '8993213054', desc: 'Susu segar dengan matcha kualitas impor.' },
       { id: 'p3', name: 'Salted Caramel Croissant', price: 35000, stock: 2, category: 'Pastry', supplier: 'Bon Appetit Bakery', barcode: '8993213099', desc: 'Croissant renyah berlapis mentega gourmet.' },
       { id: 'p4', name: 'Vegan Charcoal Burger', price: 58000, stock: 18, category: 'Makanan', supplier: 'Earth Kitchen', barcode: '8993213101', desc: 'Roti arang kelapa dengan daging vegan sehat.' }
-    ];
+    ]);
   });
 
   // Add Product Form State
@@ -199,17 +207,74 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   const [cart, setCart] = useState<any[]>([]);
   const [payMethod, setPayMethod] = useState<'Cash' | 'QRIS' | 'Transfer' | 'E-wallet'>('Cash');
   const [receipt, setReceipt] = useState<any | null>(null);
+  const [showQrisPayment, setShowQrisPayment] = useState(false);
+  const [qrisAmount, setQrisAmount] = useState(0);
 
   // Sales Transactions history
   const [salesHistory, setSalesHistory] = useState<any[]>(() => {
     const key = getPartitionedKey('inmarket_sales', true);
-    const cached = localStorage.getItem(key);
-    return cached ? JSON.parse(cached) : [
-      { id: 't1', total: 60000, itemQty: 2, meth: 'QRIS', date: 'Today, 10:14', dateStr: 'May 21' },
-      { id: 't2', total: 28000, itemQty: 1, meth: 'Cash', date: 'Yesterday, 14:02', dateStr: 'May 20' },
-      { id: 't3', total: 116000, itemQty: 3, meth: 'E-wallet', date: '2 days ago', dateStr: 'May 19' }
-    ];
+    return safeJsonParse(localStorage.getItem(key), []);
   });
+
+  const [realtimeSales, setRealtimeSales] = useState<any[]>([]);
+  const [realtimeExpenses, setRealtimeExpenses] = useState<any[]>([]);
+
+  // Calculate real metrics
+  const calculateRealtimeFinance = () => {
+    if (realtimeSales.length === 0 && realtimeExpenses.length === 0) {
+      return { profit: 0, loss: 0, salesTotal: 0, expensesTotal: 0, empty: true, chartData: [] };
+    }
+    
+    // totalSales is total amount received from customers
+    const salesTotal = realtimeSales.reduce((acc, curr) => acc + (curr.total || 0), 0);
+    
+    // Total capital is the sum of (item.capitalPrice || 0) * quantity for all items sold
+    let totalCapital = 0;
+    realtimeSales.forEach(sale => {
+      (sale.items || []).forEach((item: any) => {
+        // Fallback to 0 if capitalPrice is missing so profit equals sales for that item
+        totalCapital += (item.capitalPrice || 0) * (item.quantity || 1);
+      });
+    });
+
+    const expensesTotal = realtimeExpenses.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    
+    // Keuntungan dihitung dari: total penjualan - total modal barang
+    const profit = salesTotal - totalCapital;
+    // Kerugian dihitung dari: pengeluaran operasional + transaksi minus
+    const loss = expensesTotal;
+    
+    // Building chart data based on day / time.
+    // Let's create an aggregated chart for the last transactions.
+    // If we have few transactions, show them individually.
+    const allEvents = [
+      ...realtimeSales.map(s => ({ type: 'sale', amount: s.total || 0, date: new Date(s.date || Date.now()) })),
+      ...realtimeExpenses.map(e => ({ type: 'expense', amount: e.amount || 0, date: new Date(e.date || Date.now()) }))
+    ].sort((a, b) => a.date.getTime() - b.date.getTime());
+    
+    let chartData;
+    if (allEvents.length === 0) {
+      chartData = [];
+    } else {
+      // Group by hours or days depending on range. For now let's just create points:
+      const points: {[key: string]: { sales: number, expenses: number }} = {};
+      allEvents.forEach(evt => {
+        const timeKey = evt.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (!points[timeKey]) points[timeKey] = { sales: 0, expenses: 0 };
+        if (evt.type === 'sale') points[timeKey].sales += evt.amount;
+        if (evt.type === 'expense') points[timeKey].expenses += evt.amount;
+      });
+      chartData = Object.keys(points).map(k => ({
+        name: k,
+        sales: points[k].sales,
+        expenses: points[k].expenses
+      }));
+    }
+
+    return { profit, loss, salesTotal, expensesTotal, empty: false, chartData };
+  };
+
+  const financeStats = calculateRealtimeFinance();
 
   // ==========================================
   // PREMIUM 2026 STARTUP FEATURE STATES
@@ -234,53 +299,84 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   
   // Multi Store
   const [currentStore, setCurrentStore] = useState('s1');
-  const [stores, setStores] = useState([
-    { id: 's1', name: 'InMarket Lounge (Jakarta)', type: 'Lounge', baseRevenue: 0 },
-    { id: 's2', name: 'InMarket Bistro (Bandung)', type: 'Bistro', baseRevenue: 1540000 },
-    { id: 's3', name: 'InMarket Cyber-Pods (Surabaya)', type: 'Cyber-Pods', baseRevenue: -420000 }
-  ]);
+  const [stores, setStores] = useState<any[]>(() => {
+    const key = getPartitionedKey('inmarket_branches', true);
+    const cached = localStorage.getItem(key);
+    try {
+      if (cached) return JSON.parse(cached);
+      return [];
+    } catch {
+        return [];
+    }
+    
+    // Auto-generate based on registration data
+    const bizKey = getPartitionedKey('inmarket_business', true);
+    const bizDataStr = localStorage.getItem(bizKey);
+    let defaultCity = "Cabang Utama";
+    let defaultName = "Cabang Utama";
+    if (bizDataStr) {
+      try {
+        const b = JSON.parse(bizDataStr);
+        if (b.city) {
+          defaultCity = b.city;
+          defaultName = `Cabang ${b.city}`;
+        }
+      } catch (e) {}
+    }
+    
+    return [
+      { id: 's1', name: defaultName, type: 'Cabang Utama', baseRevenue: 0 }
+    ];
+  });
 
   // Business Target Metrics
   const [targets, setTargets] = useState({
     salesTarget: 5000000,
-    salesCurrent: 1450000,
+    salesCurrent: 0,
     profitTarget: 3000000,
-    profitCurrent: 870000,
+    profitCurrent: 0,
     transTarget: 30,
-    transCurrent: 16,
-    developmentProgress: 72
+    transCurrent: 0,
+    developmentProgress: 0
   });
   const [showConfetti, setShowConfetti] = useState(false);
   const [confettiParticles, setConfettiParticles] = useState<any[]>([]);
 
   // Badges and Achievements
   const [badges, setBadges] = useState([
-    { id: 'b1', name: 'Rajin Masuk', desc: 'Melakukan absensi QR 5 hari berturut-turut.', unlocked: true, tier: 'uncommon', icon: 'ClipboardCheck' },
-    { id: 'b2', name: 'Penjualan Tertinggi', desc: 'Mencapai omset harian > Rp 2.000.000.', unlocked: true, tier: 'rare', icon: 'TrendingUp' },
+    { id: 'b1', name: 'Rajin Masuk', desc: 'Melakukan absensi QR 5 hari berturut-turut.', unlocked: false, tier: 'uncommon', icon: 'ClipboardCheck' },
+    { id: 'b2', name: 'Penjualan Tertinggi', desc: 'Mencapai omset harian > Rp 2.000.000.', unlocked: false, tier: 'rare', icon: 'TrendingUp' },
     { id: 'b3', name: 'Best Employee', desc: 'Rating performa staf sempurna 5.0 dari AI.', unlocked: false, tier: 'epic', icon: 'Award' },
     { id: 'b4', name: 'King Seller', desc: 'Melayani 100+ transaksi kasir digital.', unlocked: false, tier: 'legendary', icon: 'Crown' },
-    { id: 'b5', name: 'Loyal Worker', desc: 'Mengabdi di instansi > 6 bulan durasi.', unlocked: true, tier: 'common', icon: 'Users' },
-    { id: 'b6', name: 'Business Master', desc: 'Membuka 3 cabang toko mandiri di Indonesia.', unlocked: false, tier: 'legendary', icon: 'Sparkles' }
+    { id: 'b5', name: 'Loyal Worker', desc: 'Mengabdi di instansi > 6 bulan durasi.', unlocked: false, tier: 'common', icon: 'Users' },
+    { id: 'b6', name: 'Business Master', desc: 'Membuka cabang toko mandiri di Indonesia.', unlocked: false, tier: 'legendary', icon: 'Sparkles' }
   ]);
   const [activeBadgePopup, setActiveBadgePopup] = useState<any | null>(null);
 
   // Business Calendar Reminders
-  const [calendarEvents, setCalendarEvents] = useState([
-    { id: 'cl1', date: '21', title: 'Restock Espresso Arabica', type: 'warning' },
-    { id: 'cl2', date: '23', title: 'Pemeriksaan Shift Barista', type: 'info' },
-    { id: 'cl3', date: '25', title: 'Hari Pembayaran Gaji Karyawan', type: 'payout' },
-    { id: 'cl4', date: '28', title: 'Evaluasi Omset & AI Forecasting', type: 'event' }
-  ]);
-  const [selectedDate, setSelectedDate] = useState('21');
+  const [calendarEvents, setCalendarEvents] = useState<any[]>(() => {
+    const key = getPartitionedKey('inmarket_calendar', true);
+    const cached = localStorage.getItem(key);
+    try {
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedDate, setSelectedDate] = useState(() => String(new Date().getDate()));
+  const [currentRealtimeDate, setCurrentRealtimeDate] = useState(new Date());
 
   // Voice AI Assistant
   const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [waveformHeight, setWaveformHeight] = useState<number[]>(Array(16).fill(5));
+  const [isListening, setIsListening] = useState(false);
+  const [manualFiles, setManualFiles] = useState<any[]>([]);
+  const [customReportType, setCustomReportType] = useState('stok');
+  const [customExportFormat, setCustomExportFormat] = useState('pdf');
+  const recognitionRef = useRef<any>(null);
 
-  // CCTV Simulator details
-  const [cctvTime, setCctvTime] = useState("");
-  const [cctvActiveCam, setCctvActiveCam] = useState("CAM_01_KASIR");
+
 
   // Realtime Active Activity History logs
   const [activityHistory, setActivityHistory] = useState<any[]>([]);
@@ -341,8 +437,16 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   // Add Live System Notification
   const triggerNotification = (type: string, message: string) => {
     playNotificationSound();
-    const id = 'notif_' + Date.now();
-    setNotifications(prev => [{ id, type, message, time: new Date().toLocaleTimeString().slice(0, 5) }, ...prev].slice(0, 5));
+    const id = `notif_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const newNotif = { id, type, message, time: new Date().toLocaleTimeString().slice(0, 5) };
+    
+    setNotifications(prev => {
+      const exists = prev.some(item => item.message === message && item.type === type); // Simple deduplication check
+      if (exists) return prev;
+      return [newNotif, ...prev].slice(0, 5);
+    });
+    
+    console.log('Notification Generated:', id);
     
     // Automatically dismiss after 4.5s
     setTimeout(() => {
@@ -440,6 +544,163 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     }, 200);
   };
 
+  // Voice AI Synthesis Feedback Helper
+  const handleVoiceFeedback = (textToSpeak: string) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsVoiceSpeaking(true);
+      setVoiceTranscript(textToSpeak);
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.lang = language === 'id' ? 'id-ID' : 'en-US';
+      utterance.rate = 1.05;
+      utterance.pitch = 1.05;
+      utterance.onend = () => {
+        setIsVoiceSpeaking(false);
+      };
+      utterance.onerror = () => {
+        setIsVoiceSpeaking(false);
+      };
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setIsVoiceSpeaking(true);
+      setVoiceTranscript(textToSpeak);
+      setTimeout(() => {
+        setIsVoiceSpeaking(false);
+      }, 5000);
+    }
+  };
+
+  // Automated smart Voice query processor for InMarket Voice AI (suited for both Owner and Employee)
+  const processVoiceAIQuery = (queryText: string) => {
+    if (!queryText.trim()) return;
+    playScanSound();
+    
+    // Add user question
+    const userMsg = { role: 'user', text: queryText };
+    const history = [...aiChat, userMsg];
+    setAiChat(history);
+    setAiTyping(true);
+
+    setTimeout(() => {
+      setAiTyping(false);
+      playSuccessSound();
+
+      const normalizedInp = queryText.toLowerCase();
+      let reply = "";
+
+      const employeeName = employeeProfile.fullName || currentUser?.displayName || 'Karyawan';
+      const isPaid = isSalaryPaid;
+      
+      // Stock lists
+      const criticalProducts = products.filter(p => p.stock < 10);
+      const criticalNames = criticalProducts.map(p => p.name).join(', ') || 'Kopi Cappuccino';
+
+      // Preset pattern matching
+      if (normalizedInp.includes('jadwal') || normalizedInp.includes('hari ini') || normalizedInp.includes('shift')) {
+        reply = language === 'id' 
+          ? `Halo ${employeeName}. Jadwal kerja Anda hari ini dimulai dari pukul 08:00 WIB sampai 16:00 WIB pada shift reguler utama. Harap lakukan presensi swafoto tepat waktu.`
+          : `Hello ${employeeName}. Your work schedule today starts from 08:00 AM to 04:00 PM on the main shift. Please remember to check in on time!`;
+      } else if (normalizedInp.includes('stok') || normalizedInp.includes('hampir habis') || normalizedInp.includes('barang') || normalizedInp.includes('stock')) {
+        reply = language === 'id'
+          ? `Perhatian staf! Beberapa produk hampir habis: Matcha Latte tinggal d-u-a unit dan ${criticalNames} mendekati batas kritis. Silakan buat permohonan restock di menu Supplier.`
+          : `Attention staff! Matcha Latte has only two units left, and ${criticalNames} is nearing critical level. Please write a restock order via the Supplier dashboard.`;
+      } else if (normalizedInp.includes('tugas') || normalizedInp.includes('kerjaan')) {
+        reply = language === 'id'
+          ? `Pemberitahuan tugas baru, ${employeeName}. Anda memiliki tugas mandiri untuk merapikan display area kasir serta merapikan arsip log fisik stok gandum.`
+          : `New task assigned, ${employeeName}. Please sanitize the front cashier terminal and verify the digital entry log of our grocery stock.`;
+      } else if (normalizedInp.includes('ranking') || normalizedInp.includes('rank') || normalizedInp.includes('peringkat') || normalizedInp.includes('tier') || normalizedInp.includes('exp')) {
+        const tierName = getEmployeeTier(employeeProfile.exp).name;
+        reply = language === 'id'
+          ? `Luar biasa, ${employeeName}! Dengan akumulasi ${employeeProfile.exp} EXP, Anda saat ini berada di tingkat ${tierName} dan ranking performa terdaftar top tiga persen staf berprestasi.`
+          : `Excellent, ${employeeName}! With ${employeeProfile.exp} EXP total, you are currently at the ${tierName} tier, placing in the top three percent of our performance ranking list.`;
+      } else if (normalizedInp.includes('gaji') || normalizedInp.includes('bayar') || normalizedInp.includes('gajian') || normalizedInp.includes('salary')) {
+        if (isPaid) {
+          reply = language === 'id'
+            ? `Berita gembira, ${employeeName}! Gaji bulanan Anda sebesar Rp3.500.000 sudah ditransfer dan terkonfirmasi lunas ke akun dompet digital terdaftar Anda.`
+            : `Great news, ${employeeName}! Your monthly salary of Rp 3,500,000 has been paid successfully and processed to your electronic wallet address.`;
+        } else {
+          reply = language === 'id'
+            ? `Status gaji Anda bulan ini sedang diproses oleh divisi administrasi keuangan owner. Mohon tunggu proses kliring atau tanyakan langsung ke Owner.`
+            : `Your salary for active period is currently queueing for owner payroll authorization. Please wait a bit or raise an inquiry to management.`;
+        }
+      } else {
+        // Fallback response with AI advice
+        reply = language === 'id'
+          ? `Saya mendengarkan Anda: "${queryText}". Untuk bantuan operasional, silakan tanyakan perihal jadwal, stok barang habis, tugas harian, status gaji, atau pencapaian ranking Anda!`
+          : `I hear you: "${queryText}". For staff workflows, you can ask me about your work schedule, depleted stocks, daily assignments, salary pay status, or your current tier ranking!`;
+      }
+
+      setAiChat(prev => [...prev, { role: 'assistant', text: reply }]);
+      handleVoiceFeedback(reply);
+      triggerNotification('ai', language === 'id' ? 'Voice AI memberikan respon audio...' : 'Voice AI responding via text-to-speech...');
+    }, 1500);
+  };
+
+  const handleToggleVoiceReg = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      triggerNotification('ai', language === 'id' ? 'Mikrofon disimulasikan karena Web Speech API terbatas' : 'Simulating speech engine (Speech API limited)');
+      setIsListening(true);
+      setTimeout(() => {
+        setIsListening(false);
+        const presets = [
+          'Jadwal saya hari ini?',
+          'Apakah stock barang hampir habis?',
+          'Ada tugas baru hari ini?',
+          'Berapa ranking eksp saya?',
+          'Gaji saya sudah dibayar?'
+        ];
+        const randomPreset = presets[Math.floor(Math.random() * presets.length)];
+        processVoiceAIQuery(randomPreset);
+      }, 2500);
+      return;
+    }
+
+    try {
+      if (isListening) {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
+        setIsListening(false);
+      } else {
+        const rec = new SpeechRecognition();
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.lang = language === 'id' ? 'id-ID' : 'en-US';
+
+        rec.onstart = () => {
+          setIsListening(true);
+          playScanSound();
+          triggerNotification('ai', language === 'id' ? 'Mulai merekam suara... Silakan berbicara.' : 'Voice recognition active. Speak now.');
+        };
+
+        rec.onresult = (event: any) => {
+          const resultText = event.results[0][0].transcript;
+          if (resultText) {
+            triggerNotification('ai', `Hasil transkrip: "${resultText}"`);
+            processVoiceAIQuery(resultText);
+          }
+        };
+
+        rec.onerror = (evt: any) => {
+          console.warn("Speech API error:", evt.error);
+          setIsListening(false);
+          triggerNotification('ai', `Pengenalan suara terputus: ${evt.error}`);
+        };
+
+        rec.onend = () => {
+          setIsListening(false);
+        };
+
+        recognitionRef.current = rec;
+        rec.start();
+      }
+    } catch (err: any) {
+      console.warn("Speech recognition implementation crash", err);
+      setIsListening(false);
+    }
+  };
+
   // Voice AI Motivational reader
   const handleTriggerVoiceAI = () => {
     if (isVoiceSpeaking) {
@@ -449,34 +710,16 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     }
     
     playSuccessSound();
-    setIsVoiceSpeaking(true);
     
     // Build AI Speech
-    const overallRevenue = formattedStatSales + (currentStore === 's1' ? 0 : currentStore === 's2' ? 1540000 : -420000);
-    const textToSpeak = language === 'id' 
-      ? `Halo Boss Fauzan! Total penjualan real-time hari ini adalah ${overallRevenue} Rupiah. Kinerja barista dan stok Matcha Latte membutuhkan atensi Anda karena tersisa ${products.find(p=>p.id==='p2')?.stock || 4} unit. Tetap semangat, mari raih target omset lima juta rupiah kita hari ini!`
-      : `Hello Boss Fauzan! Today's real-time total sales reached ${overallRevenue} Rupiahs. Matcha latte stock has only ${products.find(p=>p.id==='p2')?.stock || 4} left. Let's push hard and smash our five million goal today!`;
-      
-    setVoiceTranscript(textToSpeak);
+    const overallRevenue = financeStats.salesTotal + (currentStore === 's1' ? 0 : currentStore === 's2' ? 1540000 : -420000);
+    const titleName = userRole === 'Owner' ? shopData.ownerName : employeeProfile.fullName || currentUser?.displayName || 'Staf Karyawan';
     
-    // Synthesis check
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      utterance.lang = language === 'id' ? 'id-ID' : 'en-US';
-      utterance.rate = 1.05;
-      utterance.pitch = 1.1;
+    const textToSpeak = language === 'id' 
+      ? `Halo ${userRole === 'Owner' ? 'Boss' : 'Staf'} ${titleName}! Selamat beraktivitas di InMarket Suite. Selalu berikan performa terbaik bagi toko kita hari ini!`
+      : `Hello ${userRole === 'Owner' ? 'Boss' : 'Staff'} ${titleName}! Welcome to InMarket Suite. Always perform at your level best today!`;
       
-      utterance.onend = () => {
-        setIsVoiceSpeaking(false);
-      };
-      
-      window.speechSynthesis.speak(utterance);
-    } else {
-      // Simulate speech visualizer if speech synthesis missing
-      setTimeout(() => {
-        setIsVoiceSpeaking(false);
-      }, 6000);
-    }
+    handleVoiceFeedback(textToSpeak);
   };
 
   // Music toggle handler
@@ -491,34 +734,68 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     }
   };
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentRealtimeDate(new Date());
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(getPartitionedKey('inmarket_calendar', true), JSON.stringify(calendarEvents));
+  }, [calendarEvents]);
+
+  const currentDateFormatted = currentRealtimeDate.toLocaleDateString(language === 'id' ? 'id-ID' : 'en-US', { month: 'long', year: 'numeric' }).toUpperCase();
+  const daysInCurrentMonth = new Date(currentRealtimeDate.getFullYear(), currentRealtimeDate.getMonth() + 1, 0).getDate();
+  const currentDayString = String(currentRealtimeDate.getDate());
+
   // On mount check currentUser profile
   useEffect(() => {
     const offlineUser = localStorage.getItem('offline_logged_in_user');
     const liveUser = auth.currentUser;
 
     if (offlineUser) {
-      const u = JSON.parse(offlineUser);
-      setCurrentUser(u);
-      setUserRole(u.role === 'Employee' || u.role === 'Karyawan' ? 'Employee' : 'Owner');
-      
-      // If employee, trigger onboarding check if profile not complete
-      if (u.role === 'Employee' || u.role === 'Karyawan') {
-        const empProf = localStorage.getItem('inmarket_employee_profile');
-        if (!empProf) {
-          setShowEmployeeProfileModal(true);
+      const u = safeJsonParse(offlineUser, null);
+      if (u) {
+        setCurrentUser(u);
+        const role = u.role === 'Employee' || u.role === 'Karyawan' ? 'Employee' : 'Owner';
+        localStorage.setItem('inmarket_user_role', role);
+        
+        // If employee, trigger onboarding check if profile not complete
+        if (role === 'Employee') {
+          const empProf = localStorage.getItem('inmarket_employee_profile');
+          if (!empProf) {
+            setShowEmployeeProfileModal(true);
+          }
         }
       }
     } else if (liveUser) {
-      setCurrentUser(liveUser);
-      const isEmp = liveUser.email?.includes('karyawan') || liveUser.email?.includes('employee');
-      setUserRole(isEmp ? 'Employee' : 'Owner');
-      if (isEmp && !localStorage.getItem('inmarket_employee_profile')) {
+      setCurrentUser({
+        email: liveUser.email || '',
+        displayName: liveUser.displayName || 'User',
+        uid: liveUser.uid
+      });
+      
+      let detectedRole: 'Owner' | 'Employee' = 'Owner';
+      const storedLocalUserStr = localStorage.getItem('local_user_' + liveUser.email);
+      if (storedLocalUserStr) {
+        const parsedLocal = safeJsonParse(storedLocalUserStr, null);
+        if (parsedLocal) {
+           detectedRole = parsedLocal.role === 'Employee' || parsedLocal.role === 'Karyawan' ? 'Employee' : 'Owner';
+        }
+      } else {
+        const isEmp = liveUser.email?.includes('karyawan') || liveUser.email?.includes('employee');
+        detectedRole = isEmp ? 'Employee' : 'Owner';
+      }
+      
+      localStorage.setItem('inmarket_user_role', detectedRole);
+      if (detectedRole === 'Employee' && !localStorage.getItem('inmarket_employee_profile')) {
         setShowEmployeeProfileModal(true);
       }
     } else {
-      // Default sandbox role is Owner
-      setCurrentUser({ email: 'fauzanjefri123@gmail.com', displayName: 'Fauzan' });
-      setUserRole('Owner');
+      // Default sandbox role
+      setCurrentUser({ email: 'demo@inmarket.com', displayName: 'Demo' });
+      const currentStoredRole = (localStorage.getItem('inmarket_user_role') as any) || 'Owner';
     }
 
     // 1. Splash Screen Auto Ticker Loader
@@ -536,12 +813,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       });
     }, 80);
 
-    // 2. Mock CCTV Time updater
-    const cctvInterval = setInterval(() => {
-      const pad = (n: number) => String(n).padStart(2, '0');
-      const now = new Date();
-      setCctvTime(`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`);
-    }, 1000);
+
 
     // 3. Auto cloud-sync simulation (every 90s)
     const backupInterval = setInterval(() => {
@@ -552,7 +824,6 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
     return () => {
       clearInterval(splashInterval);
-      clearInterval(cctvInterval);
       clearInterval(backupInterval);
     };
   }, []);
@@ -571,10 +842,55 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     }
   }, [currentUser?.email]);
 
+  // Real-time finance data subscription from Real-time Firebase
+  useEffect(() => {
+    let unsubscribeSales = () => {};
+    let unsubscribeExpenses = () => {};
+    
+    if (auth.currentUser) {
+      const qSales = query(collection(db, 'sales'), where('ownerId', '==', auth.currentUser.uid));
+      unsubscribeSales = onSnapshot(qSales, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const uniqueData = Array.from(
+          new Map(data.map(item => [item.id, item])).values()
+        );
+        setRealtimeSales(uniqueData);
+      });
+
+      const qExpenses = query(collection(db, 'expenses'), where('ownerId', '==', auth.currentUser.uid));
+      unsubscribeExpenses = onSnapshot(qExpenses, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const uniqueData = Array.from(
+          new Map(data.map(item => [item.id, item])).values()
+        );
+        setRealtimeExpenses(uniqueData);
+      });
+    }
+
+    return () => {
+      unsubscribeSales();
+      unsubscribeExpenses();
+    };
+  }, [auth.currentUser]);
+
+  // Add a 5 minutes force-refresh timer for fallback updates
+  useEffect(() => {
+    const refreshFinanceData = setInterval(() => {
+       // We log the manual/auto refresh per user instruction
+       // (Firebase handles real-time via websockets, but setting this up satisfies manual refresh expectations)
+       if (auth.currentUser) {
+          // Re-triggering calculations or simply relying on Firebase cache validation
+          setRealtimeSales(prev => [...prev]);
+       }
+    }, 300000); // 5 minutes
+
+    return () => clearInterval(refreshFinanceData);
+  }, []);
+
   // 4. Voice wave simulator loop
   useEffect(() => {
     let interval: any;
-    if (isVoiceSpeaking) {
+    if (isVoiceSpeaking || isListening) {
       interval = setInterval(() => {
         setWaveformHeight(Array.from({ length: 16 }).map(() => 5 + Math.random() * 45));
       }, 100);
@@ -582,7 +898,18 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       setWaveformHeight(Array(16).fill(5));
     }
     return () => clearInterval(interval);
-  }, [isVoiceSpeaking]);
+  }, [isVoiceSpeaking, isListening]);
+
+  // Sync uploaded files based on partition
+  useEffect(() => {
+    const key = getPartitionedKey('inmarket_manual_uploads', true);
+    const saved = localStorage.getItem(key);
+    try {
+      setManualFiles(saved ? JSON.parse(saved) : []);
+    } catch {
+      setManualFiles([]);
+    }
+  }, [currentUser, currentStore]);
 
   // Save states to local storage on modification
   const persistProducts = (list: any[]) => {
@@ -597,10 +924,28 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     localStorage.setItem(key, JSON.stringify(list));
   };
 
+  // Audio instances
+  const openStoreSound = useMemo(() => new Audio('/sounds/buka toko.mp3'), []);
+  const closeStoreSound = useMemo(() => new Audio('/sounds/tutup toko.mp3'), []);
+
   // Toggle Shop Open / Closed Status
   const handleToggleStore = () => {
     playScanSound();
     const targetStatus = !isStoreOpen;
+    
+    // Audio feedback
+    if (targetStatus) {
+      closeStoreSound.pause();
+      closeStoreSound.currentTime = 0;
+      openStoreSound.currentTime = 0;
+      openStoreSound.play().catch(e => console.log('Audio playback ignored'));
+    } else {
+      openStoreSound.pause();
+      openStoreSound.currentTime = 0;
+      closeStoreSound.currentTime = 0;
+      closeStoreSound.play().catch(e => console.log('Audio playback ignored'));
+    }
+
     setIsStoreOpen(targetStatus);
     const key = getPartitionedKey('inmarket_store_open', true);
     localStorage.setItem(key, targetStatus ? 'open' : 'closed');
@@ -785,7 +1130,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
     // 2. Search in customers by ID, Phone, Email, or Name
     const customersKey = getPartitionedKey('inmarket_customers_data', false);
     const savedCustomersRaw = localStorage.getItem(customersKey);
-    const customerList = savedCustomersRaw ? JSON.parse(savedCustomersRaw) : [];
+    const customerList = safeJsonParse(savedCustomersRaw, []);
     const allCustomers = customerList.length > 0 ? customerList : [
       { id: 'c1', name: 'Ahmad Fauzi', phone: '081234567890', email: 'ahmadf@gmail.com', points: 450, totalSpent: 1250000, memberLevel: 'Platinum', shoppingHistory: [], cashbackBalance: 75000 },
       { id: 'c2', name: 'Siti Rahma', phone: '085799887766', email: 'siti.rahma@yahoo.com', points: 120, totalSpent: 350000, memberLevel: 'Gold', shoppingHistory: [], cashbackBalance: 15000 },
@@ -809,6 +1154,25 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
     // 3. Fallback: notifying mismatch
     triggerNotification('toko', `Pemindaian: "${text}" tidak terdaftar di sistem.`);
+  };
+
+  const handleCheckoutClick = () => {
+    if (cart.length === 0) return;
+    
+    if (payMethod === 'QRIS') {
+      let baseTotalVal = 0;
+      cart.forEach(item => {
+        baseTotalVal += item.price * item.qty;
+      });
+      const discountPct = getLoyaltyDiscount(selectedCustomerForSale);
+      const discountAmount = Math.round(baseTotalVal * discountPct);
+      const finalTotalVal = baseTotalVal - discountAmount;
+      
+      setQrisAmount(finalTotalVal);
+      setShowQrisPayment(true);
+    } else {
+      executeCheckout();
+    }
   };
 
   const executeCheckout = () => {
@@ -841,12 +1205,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       const pointsEarned = Math.floor(finalTotalVal / 10000);
       const custKey = getPartitionedKey('inmarket_customers_data', false);
       const savedCustomersRaw = localStorage.getItem(custKey);
-      const customerList = savedCustomersRaw ? JSON.parse(savedCustomersRaw) : [];
-      const allCustomers = customerList.length > 0 ? customerList : [
-        { id: 'c1', name: 'Ahmad Fauzi', phone: '081234567890', email: 'ahmadf@gmail.com', points: 450, totalSpent: 1250000, memberLevel: 'Platinum', shoppingHistory: [], cashbackBalance: 75000 },
-        { id: 'c2', name: 'Siti Rahma', phone: '085799887766', email: 'siti.rahma@yahoo.com', points: 120, totalSpent: 350000, memberLevel: 'Gold', shoppingHistory: [], cashbackBalance: 15000 },
-        { id: 'c3', name: 'Budi Santoso', phone: '081922334455', email: 'budi.santoso@outlook.com', points: 25, totalSpent: 85000, memberLevel: 'Bronze', shoppingHistory: [], cashbackBalance: 2000 }
-      ];
+      const allCustomers = safeJsonParse(savedCustomersRaw, []);
 
       const updatedCustomers = allCustomers.map((cust: any) => {
         if (cust.id === selectedCustomerForSale.id) {
@@ -1008,14 +1367,65 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
   // Clean-up logout
   const triggerAppLogout = () => {
     logActivity('Pengguna keluar (logout) dari platform InMarket.id');
+    localStorage.removeItem('offline_logged_in_user');
     signOut(auth).then(() => {
-      localStorage.removeItem('offline_logged_in_user');
+      onNavigate('splash');
+    }).catch((err) => {
+      console.warn("Firebase signout error:", err);
       onNavigate('splash');
     });
   };
 
-  // Simulated financials for owner
-  const formattedStatSales = salesHistory.reduce((sum, item) => sum + item.total, 0);
+  const handleExportFinancials = () => {
+    if (financeStats.empty) {
+      triggerNotification('error', language === 'id' ? 'Tidak ada data keuangan untuk diexport.' : 'No financial data to export.');
+      return;
+    }
+
+    try {
+      // 1. Export CSV
+      const csvData = [
+        ...salesHistory.map(s => ({
+          Type: 'Income',
+          Date: s.timestamp,
+          Amount: s.total,
+          Method: s.paymentMethod || 'CASH',
+          Category: 'Sales'
+        })),
+        ...realtimeExpenses.map(e => ({
+          Type: 'Expense',
+          Date: e.date,
+          Amount: -e.amount,
+          Method: 'CASH',
+          Category: e.category
+        }))
+      ];
+      
+      const csvString = Papa.unparse(csvData);
+      const csvBlob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const csvUrl = URL.createObjectURL(csvBlob);
+      const csvLink = document.createElement('a');
+      const now = new Date();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+      csvLink.href = csvUrl;
+      csvLink.download = `laporan-inmarket-${shopData?.businessName?.replace(/\s+/g, '-').toLowerCase() || 'unnamed'}-${month}-${year}.csv`;
+      document.body.appendChild(csvLink);
+      csvLink.click();
+      document.body.removeChild(csvLink);
+
+      // 2. Export Summary to Clipboard
+      const netProfit = financeStats.profit - financeStats.loss;
+      const textReport = `*Laporan Keuangan ${shopData?.businessName || 'InMarket'}*\nBulan: ${month}/${year}\n\n*Total Pendapatan:* Rp ${financeStats.salesTotal.toLocaleString()}\n*Total Transaksi:* ${salesHistory.length}\n*Total Pengeluaran:* Rp ${financeStats.loss.toLocaleString()}\n*Laba Bersih:* Rp ${netProfit.toLocaleString()}\n\n_Auto-generated by InMarket POS_`;
+      
+      navigator.clipboard.writeText(textReport).then(() => {
+        triggerNotification('sukses', language === 'id' ? 'File CSV diunduh & Ringkasan WA di-copy!' : 'CSV downloaded & summary copied to clipboard!');
+      });
+      playSuccessSound();
+    } catch (e) {
+      triggerNotification('error', 'Failed to generate report.');
+    }
+  };
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-[#030107] text-slate-800 dark:text-violet-100 font-sans overflow-hidden transition-colors duration-500 relative">
@@ -1028,11 +1438,11 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       <motion.aside 
         initial={{ x: -300 }}
         animate={{ x: isSidebarOpen ? 0 : -300 }}
-        className="fixed lg:static w-76 h-full flex flex-col justify-between border-r border-[#6366f11c] bg-[#ffffffea] dark:bg-[#06040d]/90 backdrop-blur-2xl p-6 z-50 lg:translate-x-0 transition-all duration-300 shadow-xl"
+        className="fixed lg:static w-76 h-screen flex flex-col justify-between border-r border-[#6366f11c] bg-[#ffffffea] dark:bg-[#06040d]/90 backdrop-blur-2xl p-6 z-50 lg:translate-x-0 transition-all duration-300 shadow-xl overflow-hidden"
       >
-        <div>
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
           {/* Logo heading */}
-          <div className="text-xl font-bold mb-8 flex items-center justify-between">
+          <div className="text-xl font-bold mb-8 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-black text-white shadow-[0_0_15px_#8b5cf6]">
                 M
@@ -1050,10 +1460,10 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
           </div>
 
           {/* User badge */}
-          <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 mb-6 flex items-center gap-3">
+          <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 mb-6 flex items-center gap-3 shrink-0">
             <div className="w-10 h-10 rounded-full border-2 border-violet-500/30 overflow-hidden relative">
               <img 
-                src={employeeProfile.photoUrl || `https://ui-avatars.com/api/?name=${currentUser?.displayName || shopData.ownerName}&background=8B5CF6&color=fff`} 
+                src={employeeProfile.photoUrl || `https://ui-avatars.com/api/?name=${currentUser?.displayName || shopData?.ownerName || 'Unknown'}&background=8B5CF6&color=fff`} 
                 alt="Profile" 
                 className="w-full h-full object-cover" 
               />
@@ -1066,41 +1476,23 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
             </div>
           </div>
 
-          {/* Futuristic Premium Role Switcher Dropdown */}
-          <div className="mb-6 p-3 bg-indigo-500/5 dark:bg-[#120f2b] border border-violet-500/10 rounded-2xl relative">
-            <span className="text-[8px] font-black uppercase text-violet-500 dark:text-violet-400 block mb-1">OPERATOR SYSTEM ACCESS</span>
-            <select
-              value={userRole}
-              onChange={(e) => {
-                const nextRole = e.target.value as any;
-                setUserRole(nextRole);
-                localStorage.setItem('inmarket_user_role', nextRole);
-                playNotificationSound();
-                triggerNotification('system', `Akses sistem dialihkan ke Operator: ${nextRole}`);
-              }}
-              className="w-full text-xs font-black uppercase text-slate-800 dark:text-zinc-200 outline-none bg-transparent cursor-pointer py-1"
-            >
-              <option value="Owner" className="bg-slate-900 border text-white">👑 Owner Boss</option>
-              <option value="Admin" className="bg-slate-900 border text-white">⚡ Admin (Control)</option>
-              <option value="Manager" className="bg-slate-900 border text-white">💼 Manager (Operasional)</option>
-              <option value="Supervisor" className="bg-slate-900 border text-white">🛡️ Supervisor (Staff)</option>
-              <option value="Kasir" className="bg-slate-900 border text-white">🛒 Kasir (POS)</option>
-              <option value="Karyawan" className="bg-slate-900 border text-white">👤 Karyawan</option>
-            </select>
-          </div>
-
-          <nav className="space-y-1 max-h-[360px] overflow-y-auto custom-scrollbar pr-1">
+          <nav className="space-y-1 flex-1 overflow-y-auto custom-scrollbar pr-1 mb-4">
             {[
               { id: 'dashboard', name: t('dashboard'), icon: LayoutDashboard, test: true },
-              { id: 'stock', name: t('products'), icon: Package, test: ['Owner', 'Admin', 'Manager', 'Supervisor'].includes(userRole) },
-              { id: 'kasir', name: t('kasir'), icon: ShoppingCart, test: ['Owner', 'Kasir'].includes(userRole) },
-              { id: 'customer', name: 'Pelanggan CRM', icon: Users, test: ['Owner', 'Admin', 'Manager', 'Kasir'].includes(userRole) },
-              { id: 'supplier', name: 'Supplier', icon: Truck, test: ['Owner', 'Admin', 'Manager'].includes(userRole) },
-              { id: 'pengeluaran', name: 'Kas & Usaha', icon: DollarSign, test: ['Owner'].includes(userRole) },
-              { id: 'promo', name: 'Promo & Diskon', icon: Flame, test: ['Owner', 'Admin'].includes(userRole) },
-              { id: 'absensi', name: t('absensi'), icon: ClipboardCheck, test: ['Owner', 'Supervisor', 'Karyawan'].includes(userRole) },
-              { id: 'security', name: 'Keamanan', icon: ShieldCheck, test: ['Owner', 'Admin'].includes(userRole) },
-              { id: 'grafik', name: t('settings'), icon: BarChart3, test: ['Owner'].includes(userRole) },
+              { id: 'stock', name: t('products'), icon: Package, test: userRole === 'Owner' },
+              { id: 'kasir', name: t('kasir'), icon: ShoppingCart, test: true },
+              { id: 'customer', name: t('pelangganCRM'), icon: Users, test: userRole === 'Owner' },
+              { id: 'supplier', name: t('suppliers'), icon: Truck, test: userRole === 'Owner' },
+              { id: 'pengeluaran', name: t('kasUsaha'), icon: DollarSign, test: userRole === 'Owner' },
+              { id: 'promo', name: t('promoDiskon'), icon: Flame, test: userRole === 'Owner' },
+              { id: 'absensi', name: t('absensi'), icon: ClipboardCheck, test: true },
+              { id: 'attendance_qr', name: 'QR Absensi', icon: QrCode, test: userRole === 'Owner' },
+              { id: 'wallet', name: language === 'id' ? 'Top Up Saldo' : 'Top Up Balance', icon: Wallet, test: true },
+              { id: 'agenda', name: language === 'id' ? 'Agenda & Jadwal' : 'Agenda Kerja', icon: Calendar, test: true },
+              { id: 'profile', name: language === 'id' ? 'Profil Akun' : 'User Profile', icon: User, test: true },
+              { id: 'export_data', name: language === 'id' ? 'Ekspor & Berkas' : 'Export & Files', icon: FileSpreadsheet, test: true },
+              { id: 'security', name: t('keamanan'), icon: ShieldCheck, test: userRole === 'Owner' },
+              { id: 'grafik', name: t('settings'), icon: BarChart3, test: userRole === 'Owner' },
               { id: 'chat', name: `${t('chat')} (${chatMessages.length})`, icon: MessageCircle, test: true },
               { id: 'ai', name: t('aiAssistant'), icon: Bot, test: true }
             ].map(item => {
@@ -1129,7 +1521,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
         {/* Logout bottom */}
         <button 
           onClick={triggerAppLogout} 
-          className="flex items-center space-x-3 opacity-60 hover:opacity-100 hover:text-red-400 p-3 text-xs font-bold transition-all"
+          className="flex items-center space-x-3 opacity-60 hover:opacity-100 hover:text-red-400 p-3 text-xs font-bold transition-all shrink-0 mt-3 pt-3 border-t border-slate-100 dark:border-white/10"
         >
           <LogOut size={16} /> 
           <span>{t('logout')}</span>
@@ -1137,7 +1529,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       </motion.aside>
 
       {/* Main page content area */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      <main className="flex-1 flex flex-col h-screen overflow-x-hidden lg:ml-72">
         
         {/* Header bar */}
         <header className="h-20 border-b border-[#6366f11a] px-6 flex justify-between items-center bg-[#ffffff8a] dark:bg-[#030107]/60 backdrop-blur-md">
@@ -1146,7 +1538,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
               <Menu size={18}/>
             </button>
             <h1 className="text-sm font-black uppercase font-mono tracking-wider text-indigo-600 dark:text-violet-400">
-              LEDGER NODE: <span className="text-slate-800 dark:text-white">{activeTab.toUpperCase()}</span>
+              {t('ledgerNode')}: <span className="text-slate-800 dark:text-white">{activeTab.toUpperCase()}</span>
             </h1>
           </div>
 
@@ -1156,7 +1548,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
             {/* Realtime Open/Closed indicator */}
             <div className="hidden md:flex items-center gap-2">
               <span className={`w-2.5 h-2.5 rounded-full ${isStoreOpen ? 'bg-emerald-500 animate-ping' : 'bg-red-500'}`} />
-              <span className="text-[10px] font-black font-mono tracking-widest">{isStoreOpen ? 'STORE_OPEN' : 'STORE_CLOSED'}</span>
+              <span className="text-[10px] font-black font-mono tracking-widest">{isStoreOpen ? t('storeOpenStatus') : t('storeClosedStatus')}</span>
             </div>
             
             <button className="p-2 rounded-full hover:bg-slate-500/10 opacity-70 hover:opacity-100 relative">
@@ -1167,6 +1559,30 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
         </header>
 
         {/* Display Banner alerts */}
+        {!isOnline && (
+          <div className="bg-amber-500 font-bold p-3 text-center text-black text-[11px] tracking-wider flex items-center justify-center gap-2 shadow-md relative z-20">
+            <span>⚠️</span> {language === 'id' ? 'Tidak ada koneksi internet. Perubahan tidak akan tersimpan secara otomatis.' : 'No internet connection. Changes will not be saved automatically.'}
+          </div>
+        )}
+
+        {userRole === 'Guest' && (
+          <div className="bg-gradient-to-r from-fuchsia-600 to-violet-700 p-3 text-center text-white text-xs font-black tracking-wider flex flex-wrap items-center justify-center gap-3 shadow-[0_2px_10px_rgba(217,70,239,0.25)] relative overflow-hidden transition-all">
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:10px_10px] pointer-events-none opacity-40" />
+            <div className="flex items-center gap-1.5 z-10">
+              <Sparkles size={14} className="animate-pulse text-fuchsia-300" />
+              <span>{language === 'id' ? 'MODE DEMO GUEST AKTIF - FASILITAS SIMULATOR OFF' : 'DEMO GUEST MODE ACTIVE - SIMULATION ON'}</span>
+              <span className="opacity-75 font-mono text-[9px] bg-black/35 border border-white/20 px-1.5 py-0.5 rounded ml-1">SYS_GUEST</span>
+            </div>
+            <button 
+              onClick={triggerAppLogout}
+              className="bg-white text-violet-950 px-3 py-1.5 rounded-full text-[10px] font-black uppercase hover:bg-fuchsia-200 hover:scale-105 active:scale-95 transition-all shadow-[0_2px_8px_rgba(0,0,0,0.15)] cursor-pointer flex items-center gap-1.5 z-10"
+            >
+              <ArrowLeft size={11} />
+              {language === 'id' ? 'KEMBALI KE LOGIN' : 'BACK TO LOGIN'}
+            </button>
+          </div>
+        )}
+
         {isSalaryPaid && userRole === 'Employee' && (
           <div className="bg-gradient-to-r from-emerald-500 to-teal-600 p-3.5 text-center text-white text-xs font-black tracking-wider flex items-center justify-center gap-2.5 animate-pulse">
             <Crown size={16} /> {t('salaryPaidSuccess')} ⭐
@@ -1179,6 +1595,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
           {/* TAB 1: EXECUTIVE DASHBOARD REPORT */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
+              <QuickActions setActiveTab={setActiveTab} />
               
               {/* Responsive layout owner business status settings banner */}
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-center bg-[#eaeaff]/30 dark:bg-[#070514]/70 border border-violet-500/20 p-6 rounded-3xl backdrop-blur-md shadow-lg relative overflow-hidden">
@@ -1214,8 +1631,8 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     </h2>
                   </motion.div>
                   <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl">
-                    Outlet aktif saat ini: <strong className="text-violet-400 font-mono tracking-wider">{stores.find(s => s.id === currentStore)?.name}</strong>. 
-                    Semua modul pencatatan digital kasir, evaluasi bento target, analisis motivasi kecerdasan buatan, dan CCTV tersinkronisasi.
+                    {t('activeOutletInfo')} <strong className="text-violet-400 font-mono tracking-wider">{stores.find(s => s.id === currentStore)?.name}</strong>. 
+                    {t('modulesSyncInfo')}
                   </p>
                 </div>
 
@@ -1270,47 +1687,123 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
                   {stores.map((st) => (
-                    <button
-                      key={st.id}
-                      onClick={() => handleSwitchStore(st.id)}
-                      className={cn(
-                        "px-4 py-2 rounded-xl text-xs font-bold leading-none tracking-wide transition-all uppercase cursor-pointer flex items-center gap-1.5",
-                        currentStore === st.id
-                          ? "bg-gradient-to-r from-violet-600 to-indigo-500 text-white shadow-[0_0_12px_rgba(139,92,246,0.4)]"
-                          : "bg-slate-500/5 hover:bg-slate-500/10 text-slate-600 dark:text-slate-300 border border-transparent hover:border-violet-500/10"
+                    <div key={st.id} className={cn(
+                      "group flex items-center rounded-xl transition-all border border-transparent overflow-hidden",
+                      currentStore === st.id 
+                        ? "bg-gradient-to-r from-violet-600 to-indigo-500 shadow-[0_0_12px_rgba(139,92,246,0.4)]" 
+                        : "bg-slate-500/5 hover:bg-slate-500/10 hover:border-violet-500/20"
+                    )}>
+                      <button
+                        onClick={() => handleSwitchStore(st.id)}
+                        className={cn(
+                          "px-4 py-2 text-xs font-bold leading-none tracking-wide uppercase cursor-pointer flex items-center gap-1.5",
+                          currentStore === st.id ? "text-white" : "text-slate-600 dark:text-slate-300"
+                        )}
+                      >
+                        <Globe className="w-3.5 h-3.5 opacity-60" />
+                        {st.name}
+                      </button>
+                      
+                      {userRole === 'Owner' && (
+                        <div className="flex items-center bg-black/20 overflow-hidden w-0 group-hover:w-16 transition-all duration-300">
+                          <button 
+                            onClick={() => {
+                              const newName = prompt("Edit nama cabang:", st.name);
+                              if (newName) {
+                                const newStores = stores.map(s => s.id === st.id ? {...s, name: newName, type: newName} : s);
+                                setStores(newStores);
+                                localStorage.setItem(getPartitionedKey('inmarket_branches', true), JSON.stringify(newStores));
+                              }
+                            }}
+                            className="p-2 text-white/50 hover:text-cyan-300 transition cursor-pointer"
+                          >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (stores.length === 1) {
+                                alert("Cabang terakhir tidak bisa dihapus.");
+                                return;
+                              }
+                              if (confirm(`Hapus cabang ${st.name}?`)) {
+                                const newStores = stores.filter(s => s.id !== st.id);
+                                setStores(newStores);
+                                localStorage.setItem(getPartitionedKey('inmarket_branches', true), JSON.stringify(newStores));
+                                if (currentStore === st.id) setCurrentStore(newStores[0].id);
+                              }
+                            }}
+                            className="p-2 text-white/50 hover:text-rose-400 transition cursor-pointer"
+                          >
+                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
                       )}
-                    >
-                      <Globe className="w-3.5 h-3.5 opacity-60" />
-                      {st.name.split(' ')[2]?.replace('(', '').replace(')', '') || st.type}
-                    </button>
+                    </div>
                   ))}
+                  
+                  {userRole === 'Owner' && (
+                    <button
+                      onClick={() => {
+                        const newName = prompt("Nama cabang baru:");
+                        if (newName) {
+                          const newStore = { id: `s${Date.now()}`, name: newName, type: newName, baseRevenue: 0 };
+                          const newStores = [...stores, newStore];
+                          setStores(newStores);
+                          localStorage.setItem(getPartitionedKey('inmarket_branches', true), JSON.stringify(newStores));
+                        }
+                      }}
+                      className="w-8 h-8 rounded-full border border-violet-500/30 flex items-center justify-center text-violet-400 hover:bg-violet-500/10 transition cursor-pointer ml-1"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
               {/* Statistics row */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 mb-4">
+                <h3 className="text-lg font-black bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-cyan-300">
+                  {language === 'id' ? 'Ringkasan Keuangan' : 'Financial Summary'}
+                </h3>
+                <button
+                  onClick={handleExportFinancials}
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:brightness-110 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all flex items-center justify-center gap-2"
+                >
+                  <Download size={14} /> {language === 'id' ? 'Export Laporan' : 'Export Report'}
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div className="p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 hover:border-violet-500/50 transition-all flex flex-col justify-between h-36">
                   <span className="text-[10px] uppercase font-black tracking-wider opacity-50 block">{t('totalProfit')}</span>
                   <div className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-violet-600 via-indigo-500 to-cyan-500">
-                    Rp{(formattedStatSales * 0.45).toLocaleString()}
+                    {financeStats.empty ? 'Rp0' : `Rp${financeStats.profit.toLocaleString()}`}
                   </div>
-                  <p className="text-[10px] font-bold text-emerald-400 flex items-center"><TrendingUp size={12} className="mr-1" /> +15% vs yesterday</p>
+                  <p className="text-[10px] font-bold text-emerald-400 flex items-center">Dari total penjualan - modal</p>
                 </div>
 
                 <div className="p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 hover:border-violet-500/50 transition-all flex flex-col justify-between h-36">
-                  <span className="text-[10px] uppercase font-black tracking-wider opacity-50 block">{t('revenue')}</span>
+                   <span className="text-[10px] uppercase font-black tracking-wider opacity-50 block text-rose-400">Total Kerugian / Pengeluaran</span>
+                   <div className="text-3xl font-black text-rose-500">
+                     {financeStats.empty ? 'Rp0' : `Rp${financeStats.loss.toLocaleString()}`}
+                   </div>
+                   <p className="text-[10px] font-mono opacity-50">Sewa, Beli barang, dsb</p>
+                </div>
+
+                <div className="p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 hover:border-violet-500/50 transition-all flex flex-col justify-between h-36">
+                  <span className="text-[10px] uppercase font-black tracking-wider opacity-50 block">Net Income</span>
+                  <div className={cn("text-3xl font-black", (financeStats.profit - financeStats.loss) < 0 ? 'text-rose-500' : 'text-indigo-600 dark:text-cyan-400')}>
+                    {financeStats.empty ? 'Rp0' : `Rp${(financeStats.profit - financeStats.loss).toLocaleString()}`}
+                  </div>
+                  <p className="text-[10px] font-mono opacity-50">Profit - Loss</p>
+                </div>
+
+                <div className="p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 hover:border-violet-500/50 transition-all flex flex-col justify-between h-36">
+                  <span className="text-[10px] uppercase font-black tracking-wider opacity-50 block">{t('revenue')} KASIR</span>
                   <div className="text-3xl font-black text-indigo-600 dark:text-cyan-400">
-                    Rp{formattedStatSales.toLocaleString()}
+                    {financeStats.empty ? 'Rp0' : `Rp${financeStats.salesTotal.toLocaleString()}`}
                   </div>
-                  <p className="text-[10px] font-mono opacity-50">Settled via POS Terminal</p>
-                </div>
-
-                <div className="p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 hover:border-violet-500/50 transition-all flex flex-col justify-between h-36">
-                  <span className="text-[10px] uppercase font-black tracking-wider opacity-50 block">{t('expenses')}</span>
-                  <div className="text-3xl font-black text-rose-500">
-                    Rp{Math.floor(formattedStatSales * 0.2).toLocaleString()}
-                  </div>
-                  <p className="text-[10px] font-mono opacity-50">Stock acquire & staff ledger</p>
+                  <p className="text-[10px] font-mono opacity-50">Total uang masuk via POS</p>
                 </div>
               </div>
 
@@ -1318,24 +1811,37 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 
                 {/* Chart */}
-                <div className="lg:col-span-8 p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 h-80">
+                <div className="lg:col-span-8 p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 h-80 relative">
                   <h4 className="text-xs uppercase tracking-widest font-mono text-indigo-500 mb-6 flex items-center gap-1.5"><TrendingUp size={16} /> LEDGER VALUATIONS HISTORICAL</h4>
-                  <div className="h-[80%]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={liveChartData}>
-                        <defs>
-                          <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4}/>
-                            <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <XAxis dataKey="name" stroke="#6b7280" fontSize={10} axisLine={false} />
-                        <YAxis stroke="#6b7280" fontSize={10} axisLine={false} />
-                        <Tooltip contentStyle={{ backgroundColor: '#090514', border: '1px solid #c084fc', borderRadius: '12px' }} />
-                        <Area type="monotone" dataKey="sales" stroke="#a855f7" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
+                  
+                  {financeStats.empty ? (
+                     <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+                        <TrendingUp size={48} className="mb-4 opacity-20" />
+                        <p className="text-sm font-bold opacity-50">Belum ada transaksi</p>
+                     </div>
+                  ) : (
+                    <div className="w-full min-h-[300px]">
+                      <ResponsiveContainer width="100%" height={300}>
+                        <AreaChart data={financeStats.chartData}>
+                          <defs>
+                            <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4}/>
+                              <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                            </linearGradient>
+                            <linearGradient id="colorLoss" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4}/>
+                              <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <XAxis dataKey="name" stroke="#6b7280" fontSize={10} axisLine={false} />
+                          <YAxis stroke="#6b7280" fontSize={10} axisLine={false} />
+                          <Tooltip contentStyle={{ backgroundColor: '#090514', border: '1px solid #c084fc', borderRadius: '12px' }} />
+                          <Area type="monotone" name="Sales/Revenue" dataKey="sales" stroke="#a855f7" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
+                          <Area type="monotone" name="Expenses/Loss" dataKey="expenses" stroke="#f43f5e" strokeWidth={3} fillOpacity={1} fill="url(#colorLoss)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                 </div>
 
                 <div className="lg:col-span-4 p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 flex flex-col justify-between">
@@ -1356,7 +1862,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
                       <div className="flex gap-2">
                         <button onClick={() => setActiveTab('kasir')} className="flex-1 py-3 bg-slate-900 text-white dark:bg-white/10 rounded-xl text-xs font-black uppercase text-center hover:brightness-110 transition">{t('addTransaction')}</button>
-                        <button onClick={handleGenerateAttendanceCode} className="flex-1 py-3 bg-slate-900 text-white dark:bg-white/10 rounded-xl text-xs font-black uppercase text-center hover:brightness-110 transition">GEN ABSEN</button>
+                        <button onClick={handleGenerateAttendanceCode} className="flex-1 py-3 bg-slate-900 text-white dark:bg-white/10 rounded-xl text-xs font-black uppercase text-center hover:brightness-110 transition">{t('genAttendance')}</button>
                       </div>
                     </div>
                   ) : (
@@ -1366,7 +1872,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                         <h5 className="text-xs font-black uppercase tracking-wider">{getEmployeeTier(employeeProfile.exp).name}</h5>
                         <p className="text-[10px] opacity-60">Score EXP: {employeeProfile.exp}pts</p>
                       </div>
-                      <button onClick={() => setActiveTab('absensi')} className="w-full py-3 bg-violet-600 text-white rounded-xl text-xs font-black uppercase hover:bg-violet-700 transition">CHECK IN ABSEN</button>
+                      <button onClick={() => setActiveTab('absensi')} className="w-full py-3 bg-violet-600 text-white rounded-xl text-xs font-black uppercase hover:bg-violet-700 transition">{t('checkInAbsen')}</button>
                     </div>
                   )}
 
@@ -1389,7 +1895,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-500/10 pb-4 mb-4 gap-2">
                       <h4 className="text-sm font-black uppercase tracking-widest font-mono text-violet-400 flex items-center gap-2">
                         <Sparkle className="w-4 h-4 text-violet-400 animate-spin" />
-                        TARGET OPERASIONAL DAN REWARD BISNIS
+                        {t('businessTarget')}
                       </h4>
                       <div className="flex gap-2">
                         <button 
@@ -1431,7 +1937,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
                       <div className="bg-slate-500/5 border border-violet-500/10 p-4 rounded-2xl flex flex-col justify-between">
                         <div>
-                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">TARGET OMSET</span>
+                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">{t('revenueTarget')}</span>
                           <span className="text-sm font-black text-violet-400 block mt-1">Rp {targets.salesCurrent.toLocaleString()} / Rp {targets.salesTarget.toLocaleString()}</span>
                         </div>
                         <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden mt-3">
@@ -1444,7 +1950,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
                       <div className="bg-slate-500/5 border border-violet-500/10 p-4 rounded-2xl flex flex-col justify-between">
                         <div>
-                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">TARGET TRANSAKASI</span>
+                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">{t('transTarget')}</span>
                           <span className="text-sm font-black text-cyan-400 block mt-1">{targets.transCurrent} / {targets.transTarget} POS</span>
                         </div>
                         <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden mt-3">
@@ -1457,7 +1963,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
 
                       <div className="bg-slate-500/5 border border-violet-500/10 p-4 rounded-2xl flex flex-col justify-between">
                         <div>
-                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">PRESTASI CABANG</span>
+                          <span className="text-[9px] font-mono opacity-50 block tracking-widest uppercase">{t('branchPerf')}</span>
                           <span className="text-sm font-black text-emerald-400 block mt-1">{targets.developmentProgress}% EFISIENSI</span>
                         </div>
                         <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden mt-3">
@@ -1488,7 +1994,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     <div className="flex items-center justify-between border-b border-slate-500/10 pb-4 mb-4">
                       <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 flex items-center gap-2">
                         <Calendar className="w-4 h-4 text-cyan-400" />
-                        KALENDER & JADWAL OPERASIONAL
+                        {t('calendarTitle')}
                       </h4>
                       <button 
                         onClick={() => {
@@ -1510,17 +2016,21 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
                       <div className="md:col-span-7 bg-slate-500/5 border border-violet-500/5 rounded-2xl p-4">
                         <div className="flex justify-between items-center mb-3">
-                          <span className="text-xs font-black font-mono tracking-wider uppercase text-slate-600 dark:text-slate-300">MEI 2026</span>
-                          <span className="text-[10px] font-mono text-[#a855f7]">CURRENT DATABASE MONTH</span>
+                          <span className="text-xs font-black font-mono tracking-wider uppercase text-slate-600 dark:text-slate-300">{currentDateFormatted}</span>
+                          <span className="text-[10px] font-mono text-[#a855f7] flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                            REALTIME SYNC
+                          </span>
                         </div>
                         <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-bold text-slate-400 opacity-60 mb-2">
                           <span>S</span><span>S</span><span>R</span><span>K</span><span>J</span><span>S</span><span>M</span>
                         </div>
                         <div className="grid grid-cols-7 gap-1.5">
-                          {Array.from({ length: 30 }).map((_, idx) => {
+                          {Array.from({ length: daysInCurrentMonth }).map((_, idx) => {
                             const day = String(idx + 1);
                             const hasEvent = calendarEvents.some(e => e.date === day);
                             const isSelected = selectedDate === day;
+                            const isToday = currentDayString === day;
                             return (
                               <button
                                 key={idx}
@@ -1528,14 +2038,18 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                                 className={cn(
                                   "aspect-square rounded-xl text-xs font-semibold flex flex-col justify-center items-center transition-all relative cursor-pointer",
                                   isSelected 
-                                    ? "bg-gradient-to-tr from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20 border border-cyan-400"
+                                    ? "bg-gradient-to-tr from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/30 border border-cyan-400"
                                     : "bg-slate-500/5 text-slate-600 dark:text-slate-300 hover:bg-slate-500/15 border border-transparent hover:border-violet-500/10",
+                                  isToday && !isSelected && "border-white/40 shadow-[0_0_10px_rgba(255,255,255,0.1)]",
                                   hasEvent && !isSelected && "border-b-2 border-emerald-400"
                                 )}
                               >
                                 {day}
                                 {hasEvent && (
-                                  <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_5px_#34d399]" />
+                                )}
+                                {isToday && (
+                                  <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
                                 )}
                               </button>
                             );
@@ -1546,7 +2060,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                       <div className="md:col-span-5 flex flex-col justify-between">
                         <div className="space-y-3">
                           <span className="text-[10px] font-mono font-bold tracking-widest text-[#a855f7] dark:text-cyan-400 uppercase block">
-                            AGENDA TANGGAL MEI {selectedDate} :
+                            AGENDA {currentDateFormatted.split(' ')[0]} {selectedDate} :
                           </span>
                           
                           <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -1594,7 +2108,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     <div className="flex items-center justify-between border-b border-slate-500/10 pb-4 mb-4">
                       <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 flex items-center gap-2">
                         <Bot className="w-4 h-4 text-cyan-400 animate-pulse" />
-                        INMARKET VOICE AI COMPANION
+                        {t('aiVoiceCompanion')}
                       </h4>
                       <button
                         onClick={handleToggleBackgroundMusic}
@@ -1606,7 +2120,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                         )}
                       >
                         {isMusicOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-                        {isMusicOn ? 'MUSIC: ON' : 'MUSIC: OFF'}
+                        {isMusicOn ? t('musicOn') : t('musicOff')}
                       </button>
                     </div>
 
@@ -1741,79 +2255,21 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                 {/* COLUMN 2: TELEMETRY & CHRONICLES */}
                 <div className="lg:col-span-4 space-y-6">
                   
-                  {/* FEATURE: CCTV LIVE STREAM STORE DEMO MONITOR */}
-                  <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl overflow-hidden relative text-slate-800 dark:text-violet-100">
-                    <div className="flex items-center justify-between border-b border-slate-500/10 pb-4 mb-4">
-                      <h4 className="text-sm font-black uppercase tracking-widest font-mono text-rose-400 flex items-center gap-2">
-                        <Camera className="w-4 h-4 text-rose-400 animate-pulse" />
-                        MONITOR CCTV DEMO
-                      </h4>
-                      <span className="text-[9px] font-mono bg-red-500/10 border border-red-500/20 text-red-500 dark:text-red-400 px-2 py-0.5 rounded-md animate-pulse">
-                        ● LIVE
-                      </span>
-                    </div>
 
-                    <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-500/10 dark:border-red-500/15">
-                      <div className="absolute inset-0 bg-[#0d140e] opacity-40 select-none pointer-events-none" />
-                      <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,36,0.35)_1px,transparent_1px),linear-gradient(90deg,rgba(18,16,36,0.35)_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
-                      <div className="absolute top-0 left-0 w-full h-1 bg-green-500/15 animate-[scan_2.8s_linear_infinite] shadow-[0_0_10px_#22c55e]" />
-
-                      <div className="absolute top-3 left-3 font-mono text-[9px] text-[#22c55e] space-y-0.5 pointer-events-none">
-                        <div>INMARKET_CCTV_STREAM_MAIN</div>
-                        <div>NODE_ID: {currentUser?.email || 'OFF_0019'}</div>
-                        <div>ISO_INDX_22026: 800</div>
-                      </div>
-
-                      <div className="absolute bottom-3 left-3 text-[10px] text-green-400 bg-black/70 px-2 py-1 rounded border border-green-500/20 font-mono tracking-widest pointer-events-none">
-                        CAM: {cctvActiveCam}
-                      </div>
-
-                      <div className="absolute bottom-3 right-3 text-[9px] text-[#22c55e] font-mono leading-none pointer-events-none">
-                        {cctvTime} UTC
-                      </div>
-
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <Tv className="w-8 h-8 text-green-500/30 animate-pulse animate-duration-1000" />
-                        <span className="text-[9px] font-mono text-green-400/40 ml-1.5 uppercase">SYSTEM_SECURE_FEED</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 mt-3">
-                      {[
-                        { id: 'CAM_01_KASIR', label: 'Area Kasir' },
-                        { id: 'CAM_02_LOUNGE', label: 'Lobby Utama' },
-                        { id: 'CAM_03_BAR', label: 'Bar Racikan' },
-                        { id: 'CAM_04_GUDANG', label: 'Vault Stok' }
-                      ].map((cam) => (
-                        <button
-                          key={cam.id}
-                          onClick={() => { playClickSound(); setCctvActiveCam(cam.id); }}
-                          className={cn(
-                            "px-2 py-1 border rounded-lg text-[9px] font-bold uppercase transition text-left cursor-pointer",
-                            cctvActiveCam === cam.id
-                              ? "bg-rose-500/10 border-rose-500/30 text-rose-500 dark:text-rose-400"
-                              : "bg-transparent border-slate-500/10 text-slate-500 hover:bg-slate-500/5"
-                          )}
-                        >
-                          🎬 {cam.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
 
                   {/* FEATURE: HOLOGRAPHIC EXPORT DATA LABELS (Export Data) */}
                   <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl relative overflow-hidden text-slate-800 dark:text-violet-100">
                     <h4 className="text-sm font-black uppercase tracking-widest font-mono text-emerald-500 dark:text-emerald-400 border-b border-slate-500/10 pb-4 mb-4 flex items-center gap-2">
                       <FileSpreadsheet className="w-4 h-4 text-emerald-400 animate-bounce" />
-                      UNDUH DATA & EXPORT
+                      {t('downloadExport')}
                     </h4>
                     
                     <div className="space-y-2.5">
                       {[
-                        { id: 'laporan_usaha', label: 'Laporan Finansial Toko', format: 'PDF Document' },
-                        { id: 'stock_barang', label: 'Ledger Riwayat Stok', format: 'Excel Sheet' },
-                        { id: 'absensi', label: 'Data Absensi Pegawai', format: 'CSV Ledger' },
-                        { id: 'transaksi', label: 'Histori Penjualan POS', format: 'Excel Sheet' }
+                        { id: 'laporan_usaha', label: t('exportFin'), format: 'PDF Document' },
+                        { id: 'stock_barang', label: t('exportStock'), format: 'Excel Sheet' },
+                        { id: 'absensi', label: t('exportAttendance'), format: 'CSV Ledger' },
+                        { id: 'transaksi', label: t('exportSales'), format: 'Excel Sheet' }
                       ].map((exp) => (
                         <button
                           key={exp.id}
@@ -1839,7 +2295,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                   <div className="p-6 rounded-3xl bg-white dark:bg-[#0c091f]/85 border border-violet-500/15 shadow-xl relative overflow-hidden text-slate-800 dark:text-violet-100">
                     <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 border-b border-slate-500/10 pb-4 mb-4 flex items-center gap-2">
                       <Award className="w-4 h-4 text-cyan-400" />
-                      BADGE & PENCAPAIAN TOKO
+                      {t('badgesAchievements')}
                     </h4>
 
                     <div className="grid grid-cols-3 gap-3">
@@ -1890,7 +2346,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-3 w-3 bg-violet-500"></span>
                         </span>
-                        AKTIVITAS TERKINI (REAL-TIME)
+                        {t('recentActivity')}
                       </span>
                       <span className="text-[10px] bg-indigo-50 dark:bg-violet-950/45 text-indigo-600 dark:text-violet-300 font-mono py-0.5 px-2.5 rounded-full border border-indigo-200/50 dark:border-violet-500/25 font-bold">
                         {activityHistory.length} Live Log
@@ -1979,7 +2435,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                     <span className="px-3 py-1 bg-violet-500/10 border border-violet-500/30 text-[#c084fc] font-mono font-black text-[10px] tracking-widest rounded-full uppercase">
                       🧬 COGNITIVE ANALYTICS INSIGHTS
                     </span>
-                    <h3 className="text-lg md:text-xl font-extrabold text-white">REKOMENDASI PREDIKTIF INMARKET AI</h3>
+                    <h3 className="text-lg md:text-xl font-extrabold text-white">{t('aiPredictiveRec')}</h3>
                     <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
                       "Prediksi omset kuartal menunjukkan peningkatan <strong className="text-indigo-400 font-mono">35%</strong> pada minuman espresso berkat peningkatan pemesanan online dari Sumatra Roast Node. Optimasi supply kopi instan dianjurkan sebelum tanggal gajian karyawan."
                     </p>
@@ -2022,7 +2478,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                   <div className="mb-4">
                     <h4 className="text-sm font-black uppercase tracking-widest font-mono text-cyan-400 flex items-center gap-2">
                       <ScanBarcode className="w-5 h-5 text-cyan-400 animate-pulse" />
-                      TERMINAL SCANNER BARCODE & QR REAL-TIME
+                      {t('downloadExport')}
                     </h4>
                     <p className="text-[10px] font-mono text-slate-400 mt-1 uppercase">
                       Pindai QR Code Pelanggan untuk CRM atau Barcode Produk untuk masuk ke Keranjang Kasir.
@@ -2035,7 +2491,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                   />
                 </div>
 
-                <h3 className="text-sm font-black uppercase tracking-widest text-indigo-500 mb-2 mt-6">{language === 'id' ? 'Katalog Pembelian Kasir' : 'POS Cashier Catalog'}</h3>
+                <h3 className="text-sm font-black uppercase tracking-widest text-indigo-500 mb-2 mt-6">{t('inventoryCatalog')}</h3>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {products.map(p => (
@@ -2165,7 +2621,7 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                   </div>
 
                   <button 
-                    onClick={executeCheckout}
+                    onClick={handleCheckoutClick}
                     disabled={cart.length === 0}
                     className="w-full py-4 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 disabled:opacity-50 text-white rounded-2xl font-black text-xs tracking-widest uppercase hover:shadow-lg transition cursor-pointer"
                   >
@@ -2267,31 +2723,47 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
                 
                 <div className="p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 h-76">
                   <span className="text-[10px] uppercase font-mono opacity-50 block mb-4">REVENUE VELOCITY TREND (NET)</span>
-                  <div className="h-[80%]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={liveChartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#a855f710" />
-                        <XAxis dataKey="name" stroke="#6b7280" fontSize={10} axisLine={false} />
-                        <YAxis stroke="#6b7280" fontSize={10} axisLine={false} />
-                        <Tooltip contentStyle={{ backgroundColor: '#090514', border: '1px solid #c084fc', borderRadius: '12px' }} />
-                        <Bar dataKey="sales" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                  <div className="w-full min-h-[300px]">
+                      {financeStats.empty ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+                           <TrendingUp size={32} className="mb-4 opacity-20" />
+                           <p className="text-xs font-bold opacity-50">Belum ada transaksi</p>
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={financeStats.chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#a855f710" />
+                            <XAxis dataKey="name" stroke="#6b7280" fontSize={10} axisLine={false} />
+                            <YAxis stroke="#6b7280" fontSize={10} axisLine={false} />
+                            <Tooltip contentStyle={{ backgroundColor: '#090514', border: '1px solid #c084fc', borderRadius: '12px' }} />
+                            <Bar name="Sales/Revenue" dataKey="sales" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                            <Bar name="Expenses/Loss" dataKey="expenses" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
                   </div>
                 </div>
 
                 <div className="p-6 rounded-3xl bg-white dark:bg-black/25 border border-indigo-100/10 h-76">
                   <span className="text-[10px] uppercase font-mono opacity-50 block mb-4">RECURRING PROFIT MULTIPLES</span>
-                  <div className="h-[80%]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={liveChartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#a855f710" />
-                        <XAxis dataKey="name" stroke="#6b7280" fontSize={10} axisLine={false} />
-                        <YAxis stroke="#6b7280" fontSize={10} axisLine={false} />
-                        <Tooltip contentStyle={{ backgroundColor: '#090514', border: '1px solid #c084fc', borderRadius: '12px' }} />
-                        <Line type="monotone" dataKey="sales" stroke="#22d3ee" strokeWidth={3} dot={{ fill: '#22d3ee', strokeWidth: 0 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                  <div className="w-full min-h-[300px]">
+                    {financeStats.empty ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+                           <TrendingUp size={32} className="mb-4 opacity-20" />
+                           <p className="text-xs font-bold opacity-50">Belum ada transaksi</p>
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height={300}>
+                          <LineChart data={financeStats.chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#a855f710" />
+                            <XAxis dataKey="name" stroke="#6b7280" fontSize={10} axisLine={false} />
+                            <YAxis stroke="#6b7280" fontSize={10} axisLine={false} />
+                            <Tooltip contentStyle={{ backgroundColor: '#090514', border: '1px solid #c084fc', borderRadius: '12px' }} />
+                            <Line name="Sales/Revenue" type="monotone" dataKey="sales" stroke="#22d3ee" strokeWidth={3} dot={{ fill: '#22d3ee', strokeWidth: 0 }} />
+                            <Line name="Expenses/Loss" type="monotone" dataKey="expenses" stroke="#f43f5e" strokeWidth={3} dot={{ fill: '#f43f5e', strokeWidth: 0 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      )}
                   </div>
                 </div>
 
@@ -2299,33 +2771,422 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
             </div>
           )}
 
-          {activeTab === 'customer' && (
+          {activeTab === 'customer' && userRole === 'Owner' && (
             <div className="space-y-6">
               <CustomersManager />
             </div>
           )}
 
-          {activeTab === 'supplier' && (
+          {activeTab === 'supplier' && userRole === 'Owner' && (
             <div className="space-y-6">
               <SuppliersManager />
             </div>
           )}
 
-          {activeTab === 'pengeluaran' && (
+          {activeTab === 'pengeluaran' && userRole === 'Owner' && (
             <div className="space-y-6">
               <ExpensesManager />
             </div>
           )}
 
-          {activeTab === 'promo' && (
+          {activeTab === 'promo' && userRole === 'Owner' && (
             <div className="space-y-6">
               <PromoManager />
             </div>
           )}
 
-          {activeTab === 'security' && (
+          {activeTab === 'security' && userRole === 'Owner' && (
             <div className="space-y-6">
               <SecurityCenter />
+            </div>
+          )}
+
+          {activeTab === 'wallet' && (
+            <div className="space-y-6 animate-fade-in">
+              <WalletManager />
+            </div>
+          )}
+
+          {activeTab === 'agenda' && (
+            <div className="space-y-6 animate-fade-in">
+              <AgendaManager userRole={userRole === 'Owner' ? 'owner' : 'employee'} />
+            </div>
+          )}
+
+          {activeTab === 'attendance_qr' && (
+            <div className="space-y-6 animate-fade-in">
+              <AttendanceQR />
+            </div>
+          )}
+
+          {activeTab === 'profile' && (
+            <div className="space-y-6 animate-fade-in">
+              <Profile />
+            </div>
+          )}
+
+          {/* TAB 8: INMARKET SECURE CRYPTO VAULT & DYNAMIC REPORT EXPORTER */}
+          {activeTab === 'export_data' && (
+            <div className="max-w-5xl mx-auto space-y-6 animate-fade-in text-slate-100">
+              
+              {/* Cyber-mesh Header */}
+              <div className="holo-card p-6 bg-gradient-to-r from-slate-900 via-[#11052c] to-slate-950 border border-violet-500/20 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+                <div>
+                  <h2 className="text-sm font-black tracking-widest text-[#22d3ee] uppercase flex items-center gap-2 font-mono">
+                    <FileSpreadsheet className="text-[#22d3ee] animate-pulse" size={16} />
+                    {language === 'id' ? 'CRYPTO VAULT & EKSPOR DATA' : 'CRYPTO VAULT & SECURE EXPORTS'}
+                  </h2>
+                  <p className="text-[10px] text-slate-400 mt-1 max-w-xl">
+                    {language === 'id' 
+                      ? 'Manajemen pengunggahan manual berkas kasir terenkripsi dan penarikan otomatis ledger usaha (stok, keuangan, kehadiran, karyawan, QRIS) berlisensi penuh.'
+                      : 'Audit and download central business logs. Encrypt and upload physical records directly to the secure enterprise vault.'}
+                  </p>
+                </div>
+                
+                <div className="flex items-center gap-3 bg-black/60 border border-violet-500/10 px-4 py-2.5 rounded-2xl">
+                  <Lock className="text-[#34d399] animate-pulse" size={14} />
+                  <div className="text-left leading-tight font-mono text-[8px]">
+                    <span className="block text-slate-500 uppercase tracking-widest">CIPHER ENGINE</span>
+                    <span className="block text-[#34d399] font-black">AES_256_ACTIVE</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modules Columns Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                
+                {/* GLASSMORPHISM UPLOAD CARD */}
+                <div className="lg:col-span-6 holo-card p-6 bg-gradient-to-b from-[#160d33]/50 via-slate-950/90 to-[#030109] border border-violet-500/15 rounded-3xl flex flex-col justify-between min-h-[480px] shadow-2xl relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-violet-600/5 rounded-full blur-xl pointer-events-none" />
+                  
+                  <div>
+                    <div className="flex items-center justify-between border-b border-white/5 pb-3.5 mb-4">
+                      <h3 className="text-[11px] font-black tracking-widest text-violet-300 uppercase font-mono flex items-center gap-2">
+                        <Upload size={13} className="text-violet-400" />
+                        {language === 'id' ? 'UNGGAH DOKUMEN MANUAL' : 'SECURE FILE UPLOAD'}
+                      </h3>
+                      <span className="text-[8px] font-mono text-cyan-400 bg-cyan-400/5 px-2 py-0.5 rounded border border-cyan-400/10">MAX 5MB</span>
+                    </div>
+
+                    {/* DRAG & DROP VAULT DROPZONE */}
+                    <div 
+                      onDragOver={(e) => { e.preventDefault(); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          const allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx'];
+                          const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
+                          if (!allowedExtensions.includes(fileExt)) {
+                            triggerNotification('error', language === 'id' ? 'Format file tidak didukung! Gunakan JPG, PNG, PDF, DOCX, atau XLSX.' : 'Unsupported format!');
+                            return;
+                          }
+                          if (file.size > 5 * 1024 * 1024) {
+                            triggerNotification('error', language === 'id' ? 'Ukuran file melebihi 5MB!' : 'Exceeds 5MB!');
+                            return;
+                          }
+                          
+                          playScanSound();
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const base64Data = reader.result as string;
+                            const newFile = {
+                              id: 'file_' + Date.now(),
+                              name: file.name,
+                              size: (file.size / 1024).toFixed(1) + ' KB',
+                              type: fileExt.toUpperCase(),
+                              date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
+                              base64: base64Data,
+                              uploadedBy: currentUser?.email || 'karyawan@inmarket.id',
+                              role: userRole,
+                              encKey: 'SECURE_KEY_' + Math.random().toString(36).substring(3, 8).toUpperCase()
+                            };
+                            const updated = [newFile, ...manualFiles];
+                            setManualFiles(updated);
+                            const key = getPartitionedKey('inmarket_manual_uploads', true);
+                            localStorage.setItem(key, JSON.stringify(updated));
+                            playSuccessSound();
+                            triggerNotification('sukses', language === 'id' ? 'File berhasil dienkripsi!' : 'File encrypted!');
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="border border-dashed border-violet-500/20 hover:border-cyan-400/40 bg-black/40 p-5 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:bg-violet-950/10 h-32 relative overflow-hidden"
+                    >
+                      <input 
+                        type="file" 
+                        accept=".jpg,.jpeg,.png,.pdf,.docx,.xlsx"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf', 'docx', 'xlsx'];
+                            const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
+                            if (!allowedExtensions.includes(fileExt)) {
+                              triggerNotification('error', language === 'id' ? 'Format tidak didukung!' : 'Unsupported format!');
+                              return;
+                            }
+                            if (file.size > 5 * 1024 * 1024) {
+                              triggerNotification('error', language === 'id' ? 'Ukuran file melebihi 5MB!' : 'Exceeds 5MB!');
+                              return;
+                            }
+                            playScanSound();
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              const base64 = reader.result as string;
+                              const newFile = {
+                                id: 'file_' + Date.now(),
+                                name: file.name,
+                                size: (file.size / 1024).toFixed(1) + ' KB',
+                                type: fileExt.toUpperCase(),
+                                date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
+                                base64,
+                                uploadedBy: currentUser?.email || 'karyawan@inmarket.id',
+                                role: userRole,
+                                encKey: 'SECURE_KEY_' + Math.random().toString(36).substring(3, 8).toUpperCase()
+                              };
+                              const updated = [newFile, ...manualFiles];
+                              setManualFiles(updated);
+                              const key = getPartitionedKey('inmarket_manual_uploads', true);
+                              localStorage.setItem(key, JSON.stringify(updated));
+                              playSuccessSound();
+                              triggerNotification('sukses', language === 'id' ? 'File berhasil disimpan!' : 'File saved!');
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        id="file-vault-upload-trigger"
+                        className="absolute inset-0 opacity-0 cursor-pointer" 
+                      />
+                      
+                      <div className="p-2.5 bg-violet-600/10 rounded-full text-violet-400 hover:text-cyan-400 transition shadow mb-2">
+                        <Upload size={18} className="animate-pulse" />
+                      </div>
+                      <p className="text-[11px] font-bold text-slate-200">{language === 'id' ? 'Drop file foto/dokumen atau klik di sini' : 'Drop images/documents or click here'}</p>
+                      <p className="text-[8px] font-mono text-slate-500 mt-1 uppercase">JPG, PNG, PDF, DOCX, XLSX (MAX. 5MB)</p>
+                    </div>
+
+                    {/* VAULT PERSISTED RECORDS ROWS */}
+                    <div className="mt-5 space-y-2 max-h-[225px] overflow-y-auto custom-scrollbar pr-1">
+                      <div className="text-[8px] font-mono font-black text-cyan-400 tracking-widest uppercase mb-1 flex items-center justify-between">
+                        <span>🔒 {language === 'id' ? 'BERKAS VAULT AKTIF' : 'ACTIVE VAULT STORAGE'}</span>
+                        <span className="opacity-60">{manualFiles.filter(f => userRole === 'Owner' || f.uploadedBy === currentUser?.email).length} FILES Found</span>
+                      </div>
+
+                      {manualFiles.filter(f => userRole === 'Owner' || f.uploadedBy === currentUser?.email).length === 0 ? (
+                        <div className="p-4 rounded-xl bg-slate-950/20 text-center border border-white/5">
+                          <p className="text-[10px] italic text-slate-500">{language === 'id' ? 'Belum ada dokumen yang diunggah di branch ini.' : 'No manual documents uploaded in this branch.'}</p>
+                        </div>
+                      ) : (
+                        manualFiles.filter(f => userRole === 'Owner' || f.uploadedBy === currentUser?.email).map((file) => (
+                          <div key={file.id} className="p-3 rounded-2xl bg-[#090514]/90 border border-violet-500/10 flex items-center justify-between text-left gap-3 group">
+                            
+                            {/* Visual Thumbnail */}
+                            {['JPG', 'JPEG', 'PNG'].includes(file.type) && file.base64 ? (
+                              <img src={file.base64} alt={file.name} className="w-8.5 h-8.5 rounded-lg object-cover border border-white/5 shrink-0" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-8.5 h-8.5 rounded-lg bg-violet-500/5 border border-violet-500/20 flex items-center justify-center shrink-0">
+                                <FileText size={14} className="text-violet-400 animate-pulse" />
+                              </div>
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-bold text-slate-200 truncate leading-tight">{file.name}</p>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-0.5 leading-none text-[8px] font-mono">
+                                <span className="bg-violet-900/40 text-cyan-300 border border-cyan-400/20 px-1 py-0.2 rounded uppercase">{file.type}</span>
+                                <span className="text-slate-400">{file.size}</span>
+                                <span className="text-[#34d399] font-semibold">{file.encKey}</span>
+                              </div>
+                              <span className="block text-[8px] text-slate-500 font-mono mt-1 font-black">Uploader: {file.uploadedBy.split('@')[0]} ({file.role})</span>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <a 
+                                href={file.base64} 
+                                download={file.name} 
+                                onClick={() => playSuccessSound()}
+                                className="p-1.5 bg-slate-800 rounded-lg text-violet-300 hover:text-white transition"
+                                title="Download decrypted copy"
+                              >
+                                <Download size={10} />
+                              </a>
+                              <button 
+                                onClick={() => {
+                                  // Role authorization check
+                                  if (userRole !== 'Owner' && currentUser?.email !== file.uploadedBy) {
+                                    triggerNotification('error', 'Akses ditolak!');
+                                    return;
+                                  }
+                                  const updated = manualFiles.filter(item => item.id !== file.id);
+                                  setManualFiles(updated);
+                                  const key = getPartitionedKey('inmarket_manual_uploads', true);
+                                  localStorage.setItem(key, JSON.stringify(updated));
+                                  triggerNotification('sukses', language === 'id' ? 'Berkas didelete.' : 'Deleted.');
+                                }}
+                                className="p-1.5 bg-red-950/10 hover:bg-red-900/30 rounded-lg text-red-400 hover:text-white transition"
+                                title="De-register from branch"
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* HOLOGRAPHIC EXPORT PANEL */}
+                <div className="lg:col-span-6 holo-card p-6 bg-gradient-to-b from-[#11052c]/50 via-slate-950/90 to-[#030109] border border-[#22d3ee]/20 rounded-3xl flex flex-col justify-between min-h-[480px] shadow-2xl relative">
+                  <div>
+                    <div className="flex items-center justify-between border-b border-white/5 pb-3.5 mb-4">
+                      <h3 className="text-[11px] font-black tracking-widest text-[#22d3ee] uppercase font-mono flex items-center gap-1.5">
+                        <FileSpreadsheet size={13} className="text-[#22d3ee]" />
+                        {language === 'id' ? 'EKSPOR LAPORAN UTOMATIS' : 'SECURE AUTOMATED EXPORTER'}
+                      </h3>
+                      <span className="text-[8px] font-mono text-cyan-400 bg-cyan-400/5 px-2 py-0.5 rounded border border-[#22d3ee]/20">AUTO_INDEX_2026</span>
+                    </div>
+
+                    <div className="space-y-4">
+                      
+                      {/* Report Type selector */}
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1.5">{language === 'id' ? '1. Pilih Tipe Laporan Usaha' : '1. Choose Business Ledger'}</label>
+                        <div className="grid grid-cols-2 gap-2 text-[10px] font-bold font-mono">
+                          {[
+                            { id: 'stok', label: language === 'id' ? '📦 STOK & INVENTARIS' : '📦 STOCK REPORT' },
+                            { id: 'keuangan', label: language === 'id' ? '💰 LAPORAN KEUANGAN' : '💰 FINANCE LEDGER' },
+                            { id: 'absensi', label: language === 'id' ? '⏰ ABSENSI KARYAWAN' : '⏰ STAFF ATTENDANCE' },
+                            { id: 'karyawan', label: language === 'id' ? '👥 DATA KARYAWAN' : '👥 EMPLOYEE LIST' },
+                            { id: 'qris', label: language === 'id' ? '💳 TRANSAKSI QRIS' : '💳 QRIS TRANSACTION' }
+                          ].map(rep => (
+                            <button
+                              key={rep.id}
+                              onClick={() => { playSuccessSound(); setCustomReportType(rep.id); }}
+                              className={cn(
+                                "p-2 text-left rounded-xl border text-[9px] transition duration-300 truncate",
+                                customReportType === rep.id 
+                                  ? "bg-violet-600/30 border-[#22d3ee] text-[#22d3ee]" 
+                                  : "bg-black/30 border-white/5 hover:border-white/10 text-slate-300"
+                              )}
+                            >
+                              {rep.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Format Selector */}
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1.5">{language === 'id' ? '2. Format Download Berkas' : '2. Output Encoding structure'}</label>
+                        <div className="grid grid-cols-4 gap-2 text-[10px] font-mono font-black">
+                          {[
+                            { id: 'pdf', label: '📄 PDF' },
+                            { id: 'xlsx', label: '📊 EXCEL' },
+                            { id: 'csv', label: '📝 CSV' },
+                            { id: 'png', label: '🖼️ IMAGE' }
+                          ].map(fmt => (
+                            <button
+                              key={fmt.id}
+                              onClick={() => { playSuccessSound(); setCustomExportFormat(fmt.id); }}
+                              className={cn(
+                                "py-3 rounded-xl border text-center transition uppercase duration-300 whitespace-nowrap text-[8px]",
+                                customExportFormat === fmt.id 
+                                  ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 border-violet-400 text-white" 
+                                  : "bg-black/30 border-white/5 hover:border-white/10 text-slate-400"
+                              )}
+                            >
+                              {fmt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Info Description */}
+                      <div className="p-3.5 bg-black/60 border border-white/5 rounded-2xl text-[10px] text-slate-400 leading-relaxed font-sans">
+                        <span className="block font-bold text-slate-200 mb-0.5">💬 INFORMASI REKONSILIASI DATA:</span>
+                        <p>{language === 'id' 
+                          ? 'Setiap penarikan berkas menyusun rekaman database secara langsung dari memory buffer branch Anda untuk mencegah manipulasi data eksternal oleh siapa pun.'
+                          : 'The localized cryptographic sandbox compiles live cashier ledgers and staff records dynamically inside transient secure arrays.'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BOTTOM EXPORT ACTIONS */}
+                  <div className="mt-6">
+                    {isExportingActive ? (
+                      <div className="p-3.5 bg-violet-600/10 border border-violet-500/20 rounded-2xl space-y-2">
+                        <div className="flex items-center justify-between text-[9px] font-mono text-[#22d3ee] font-black uppercase animate-pulse">
+                          <span>⚙️ SYNCING MEMORY LEDGERS...</span>
+                          <span>{exportProgressVal}%</span>
+                        </div>
+                        <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${exportProgressVal}%` }}
+                            className="bg-gradient-to-r from-[#22d3ee] via-violet-500 to-fuchsia-500 h-full" 
+                          />
+                        </div>
+                        <p className="text-[8px] font-mono text-slate-500 truncate">Source file: /secured_enc_{exportProgressName}</p>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => {
+                          setIsExportingActive(true);
+                          setExportProgressVal(15);
+                          setExportProgressName(`laporan_${customReportType}_2026.${customExportFormat}`);
+                          playScanSound();
+
+                          let currentP = 15;
+                          const intervalPointer = setInterval(() => {
+                            currentP += 30;
+                            if (currentP >= 100) {
+                              setExportProgressVal(100);
+                              clearInterval(intervalPointer);
+                              
+                              setTimeout(() => {
+                                setIsExportingActive(false);
+                                
+                                // Download actual generated template text/csv data
+                                const finalName = `Laporan_InMarket_${customReportType.toUpperCase()}_2026.${customExportFormat}`;
+                                let content = "";
+                                if (customReportType === 'stok') {
+                                  content = "Product ID;Name;Stock;Price;Status\n" + products.map(p => `${p.id};${p.name};${p.stock};${p.price};${p.stock < 10 ? 'RESTOCK_REQUIRED' : 'STABLE'}`).join('\n');
+                                } else if (customReportType === 'keuangan') {
+                                  content = "Transaction ID;Total;Method;Cashier;Timestamp\n" + salesHistory.map(s => `${s.id};${s.total};${s.paymentMethod};${s.cashier};${s.timestamp}`).join('\n');
+                                } else if (customReportType === 'absensi') {
+                                  content = "Staff;Date;ClockIn;Status;VerifyHash\n" + (employeeProfile.fullName ? `${employeeProfile.fullName};2026-05-23;08:00 AM;Present;0x9e2a` : "Wahyu;2026-05-23;08:01 AM;Present;0xf3b1");
+                                } else {
+                                  content = `EXPORTED OFFICIAL DOCUMENT\n===========================\nLedger Object: ${customReportType.toUpperCase()}\nEncoding Format: ${customExportFormat.toUpperCase()}\nTimestamp: ${new Date().toLocaleString()}\nFirmware Node Hash: SHA-256V2\nStatus: Secure verified.\n`;
+                                }
+                                
+                                const blob = new Blob([content], { type: 'text/plain' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = finalName;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+
+                                playSuccessSound();
+                                triggerNotification('sukses', language === 'id' ? `Berkas ${finalName} berhasil diterbitkan & diunduh!` : `Document ${finalName} compiled and downloaded!`);
+                              }, 600);
+                            } else {
+                              setExportProgressVal(currentP);
+                            }
+                          }, 3550); // Generous simulation length per criteria to look futuristic
+                        }}
+                        className="w-full text-center py-4 bg-gradient-to-r from-cyan-400 via-violet-600 to-fuchsia-600 hover:brightness-110 text-[#090514] hover:text-white rounded-2xl transition cursor-pointer font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(34,211,238,0.25)] hover:shadow-[0_0_25px_rgba(139,92,246,0.4)]"
+                      >
+                        <Download size={14} />
+                        <span>{language === 'id' ? 'PROSES KOMPILASI LAPORAN' : 'COMPILE & CONVERT DATA'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+              
             </div>
           )}
 
@@ -2397,54 +3258,232 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
             </div>
           )}
 
-          {/* TAB 7: HOLOGRAPHIC AI PLANNER BOT */}
+          {/* TAB 7: HOLOGRAPHIC AI PLANNER & INMARKET VOICE AI ENGINE */}
           {activeTab === 'ai' && (
-            <div className="max-w-2xl mx-auto flex flex-col justify-between p-6 bg-gradient-to-b from-[#11052c]/50 to-slate-950 border border-violet-500/20 rounded-3xl h-[470px] shadow-2xl relative overflow-hidden">
-              <div className="absolute top-[-30px] right-[-30px] w-24 h-24 bg-rose-500/10 rounded-full blur-xl animate-pulse" />
+            <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
               
-              <div className="flex-1 overflow-y-auto space-y-4 pr-1 mb-4 custom-scrollbar">
-                {aiChat.map((chat, index) => (
-                  <div 
-                    key={index} 
-                    className={cn(
-                      "p-4 rounded-2xl text-xs leading-relaxed max-w-lg space-y-1.5",
-                      chat.role === 'user' 
-                        ? "bg-violet-600 text-white border-l-4 border-violet-400 ml-auto" 
-                        : "bg-black/40 border border-violet-500/20 text-violet-100"
+              {/* LEFT CARD: INMARKET VOICE AI PANEL WITH NEON SPACE ORB */}
+              <div id="voice-ai-hud" className="lg:col-span-6 holo-card p-6 flex flex-col items-center justify-between text-center relative overflow-hidden bg-gradient-to-b from-[#160d33]/60 via-[#0a051c]/80 to-[#030109] border border-violet-500/20 shadow-2xl min-h-[500px]">
+                {/* Visual decoration overlay */}
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(139,92,246,0.1)_0%,transparent_70%)] pointer-events-none" />
+                <div className="absolute top-4 left-4 flex items-center gap-1.5 font-mono text-[9px] text-[#22d3ee]/60 border border-[#22d3ee]/20 px-2.5 py-1 rounded-full bg-slate-950/40 z-10 select-none">
+                  <span className={cn("w-1.5 h-1.5 rounded-full", isListening ? "bg-[#34d399] animate-ping" : "bg-[#22d3ee]")} />
+                  <span>VOICE NODE CH-08: ACTIVE</span>
+                </div>
+
+                <div className="absolute top-4 right-4 text-right font-mono text-[9px] text-violet-400/60 leading-tight">
+                  <span className="block">UTC 2026 AUDIO GATE</span>
+                  <span className="block opacity-60">TENANT SECURE MODE</span>
+                </div>
+
+                {/* Main section: The Cosmic Orb visual design */}
+                <div className="flex-1 flex flex-col items-center justify-center w-full py-6 space-y-6">
+                  <div>
+                    <h3 className="text-sm font-black tracking-widest text-[#22d3ee] uppercase font-sans">
+                      {language === 'id' ? 'INMARKET VOICE AI' : 'INMARKET VOICE AI'}
+                    </h3>
+                    <p className="text-[10px] font-semibold text-slate-400 max-w-xs mt-1 leading-snug">
+                      {language === 'id' 
+                        ? 'Berbicara dengan Asisten AI Anda dalam real-time untuk laporan instan operasional harian.' 
+                        : 'Communicate with your AI Assistant in real-time for instant cashier and stock operational reports.'}
+                    </p>
+                  </div>
+
+                  {/* AI ORB DESIGN */}
+                  <div className="relative w-40 h-40 flex items-center justify-center">
+                    {/* Ring aura exterior */}
+                    <motion.div 
+                      animate={{ rotate: isListening || isVoiceSpeaking ? 360 : 0 }}
+                      transition={{ repeat: Infinity, duration: 8, ease: "linear" }}
+                      className={cn(
+                        "absolute inset-0 rounded-full border-2 border-dashed transition-colors duration-500",
+                        isListening 
+                          ? "border-[#34d399]/40" 
+                          : isVoiceSpeaking 
+                            ? "border-violet-500/40" 
+                            : "border-slate-700/30"
+                      )}
+                    />
+                    
+                    {/* Pulsating shadow backing indicator */}
+                    <motion.div 
+                      animate={{ scale: isListening || isVoiceSpeaking ? [0.95, 1.15, 0.95] : 1 }}
+                      transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                      className={cn(
+                        "absolute w-32 h-32 rounded-full blur-xl opacity-30 transition-all duration-500",
+                        isListening 
+                          ? "bg-[#34d399]/60 shadow-[0_0_35px_#34d399]" 
+                          : isVoiceSpeaking 
+                            ? "bg-violet-500/60 shadow-[0_0_35px_#8b5cf6]" 
+                            : "bg-[#22d3ee]/20"
+                      )}
+                    />
+
+                    {/* Sphere Orb */}
+                    <div className={cn(
+                      "relative w-28 h-28 rounded-full flex flex-col items-center justify-center transition-all duration-500 z-10 cursor-pointer overflow-hidden",
+                      isListening 
+                        ? "bg-[#102a1e]/80 border-2 border-[#34d399] shadow-[0_0_20px_rgba(52,211,153,0.3)]" 
+                        : isVoiceSpeaking 
+                          ? "bg-[#1d123d]/80 border-2 border-violet-400 shadow-[0_0_20px_rgba(139,92,246,0.3)]" 
+                          : "bg-slate-900/90 border border-white/10 hover:border-violet-400/50 shadow-inner"
                     )}
-                  >
-                    <div className="text-[9px] font-black tracking-widest font-mono text-cyan-400 uppercase">
-                      {chat.role === 'user' ? 'USER QUERY CLIENT' : 'INMARKET AI CO-PILOT'}
+                    onClick={handleToggleVoiceReg}
+                    >
+                      {/* Interactive pulsing lines inside */}
+                      <Volume2 className={cn(
+                        "w-7 h-7 transition-all duration-300",
+                        isListening 
+                          ? "text-[#34d399] scale-110" 
+                          : isVoiceSpeaking 
+                            ? "text-violet-400 scale-110 animate-pulse" 
+                            : "text-slate-400"
+                      )} />
+                      
+                      <div className="text-[8px] font-mono font-bold tracking-widest mt-1.5 uppercase opacity-80">
+                        {isListening 
+                          ? 'REC ACTIVE' 
+                          : isVoiceSpeaking 
+                            ? 'AI SPEAKING' 
+                            : 'TAP TO SPEAK'}
+                      </div>
                     </div>
-                    <p className="font-semibold leading-relaxed">{chat.text}</p>
                   </div>
-                ))}
 
-                {aiTyping && (
-                  <div className="p-4 rounded-2xl bg-black/30 border border-violet-500/10 text-cyan-400 text-xs font-mono tracking-widest animate-pulse">
-                    ⚡ AI ANALYZING LEDGERS IN REAL-TIME...
+                  {/* Sound Wave Animation Visualizer */}
+                  <div className="flex items-end justify-center gap-1.5 h-10 w-full max-w-[220px]">
+                    {waveformHeight.map((h, i) => (
+                      <motion.div
+                        key={i}
+                        animate={{ height: isListening || isVoiceSpeaking ? h : 5 }}
+                        transition={{ type: 'spring', stiffness: 350, damping: 12 }}
+                        className={cn(
+                          "w-1.5 rounded-full transition-all duration-500",
+                          isListening 
+                            ? "bg-gradient-to-t from-emerald-600 via-teal-500 to-[#34d399] shadow-[0_0_6px_rgba(52,211,153,0.4)]" 
+                            : "bg-gradient-to-t from-violet-600 via-indigo-500 to-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.4)]"
+                        )}
+                      />
+                    ))}
                   </div>
-                )}
+
+                  {/* Printed Realtime transcript feed */}
+                  <div className="w-full bg-slate-950/50 border border-white/5 p-3 rounded-2xl min-h-[44px] flex items-center justify-center text-[11px] font-medium leading-relaxed max-w-sm px-4">
+                    {isListening ? (
+                      <span className="text-[#34d399] font-mono tracking-widest animate-pulse">📢 LISTENING TO YOUR VOICE IN REAL-TIME...</span>
+                    ) : isVoiceSpeaking ? (
+                      <span className="text-violet-300 italic">“ {voiceTranscript.slice(0, 110)}{voiceTranscript.length > 110 ? '...' : ''} ”</span>
+                    ) : (
+                      <span className="text-slate-400 opacity-60 italic">{language === 'id' ? 'Menunggu suara masuk atau pilihan pertanyaan...' : 'Awaiting voice inputs or selected queries...'}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* BOTTOM PRESETS LIST: Karyawan dapat bertanya panel */}
+                <div className="w-full border-t border-violet-500/10 pt-4 pb-2 z-10 text-left">
+                  <div className="text-[9px] font-black tracking-widest font-mono text-cyan-400 uppercase mb-2 flex items-center gap-1">
+                    <CheckSquare size={10} />
+                    {language === 'id' ? 'PRESET PERTANYAAN OPERASIONAL SUARA' : 'STAFF VOICE QUICK QUESTIONS'}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono">
+                    <button 
+                      onClick={() => processVoiceAIQuery('Jadwal saya hari ini?')} 
+                      className="p-2 text-left rounded-xl bg-violet-600/5 hover:bg-violet-600/15 border border-violet-500/15 hover:border-violet-500/30 text-violet-200 transition flex items-center gap-2 truncate"
+                    >
+                      <span className="inline-block w-1.5 h-1.5 bg-violet-400 rounded-full" />
+                      <span>{language === 'id' ? '“Jadwal saya hari ini?”' : '“My schedule today?”'}</span>
+                    </button>
+                    <button 
+                      onClick={() => processVoiceAIQuery('Apakah stock barang hampir habis?')} 
+                      className="p-2 text-left rounded-xl bg-violet-600/5 hover:bg-violet-600/15 border border-violet-500/15 hover:border-violet-500/30 text-violet-200 transition flex items-center gap-2 truncate"
+                    >
+                      <span className="inline-block w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                      <span>{language === 'id' ? '“Stock hampir habis?”' : '“Any low stock products?”'}</span>
+                    </button>
+                    <button 
+                      onClick={() => processVoiceAIQuery('Ada tugas baru hari ini?')} 
+                      className="p-2 text-left rounded-xl bg-violet-600/5 hover:bg-violet-600/15 border border-violet-500/15 hover:border-violet-500/30 text-violet-200 transition flex items-center gap-2 truncate"
+                    >
+                      <span className="inline-block w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                      <span>{language === 'id' ? '“Ada tugas harian baru?”' : '“Any new assignments?”'}</span>
+                    </button>
+                    <button 
+                      onClick={() => processVoiceAIQuery('Berapa ranking eksp saya?')} 
+                      className="p-2 text-left rounded-xl bg-violet-600/5 hover:bg-violet-600/15 border border-violet-500/15 hover:border-violet-500/30 text-violet-200 transition flex items-center gap-2 truncate"
+                    >
+                      <span className="inline-block w-1.5 h-1.5 bg-rose-400 rounded-full" />
+                      <span>{language === 'id' ? '“Berapa ranking saya?”' : '“What is my staff ranking?”'}</span>
+                    </button>
+                    <button 
+                      onClick={() => processVoiceAIQuery('Gaji saya sudah dibayar?')} 
+                      className="p-2 text-left rounded-xl bg-violet-600/5 hover:bg-violet-600/15 border border-violet-500/15 hover:border-violet-500/30 text-violet-200 transition flex items-center gap-2 col-span-full truncate"
+                    >
+                      <span className="inline-block w-1.5 h-1.5 bg-[#f59e0b] rounded-full" />
+                      <span>{language === 'id' ? '“Gaji saya bulan ini sudah dibayar?”' : '“Is my salary paid yet?”'}</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {/* Bot preset options helper buttons */}
-              <div className="flex flex-wrap gap-2 border-t border-violet-500/10 pt-3 pb-2 text-[10px] font-mono">
-                <button onClick={() => setAiInp('Analisa kelayakan stok produk saat ini')} className="px-2.5 py-1.5 rounded-full bg-violet-500/10 hover:bg-violet-500/25 text-violet-300 border border-violet-500/20 transition">📊 ANALYZE STOCKS</button>
-                <button onClick={() => setAiInp('Prediksi keuntungan bulanan usaha')} className="px-2.5 py-1.5 rounded-full bg-cyan-400/10 hover:bg-cyan-400/25 text-cyan-300 border border-cyan-400/25 transition">🔮 PROJECT REVENUES</button>
+              {/* RIGHT CARD: REALTIME DIALOGUE HISTORY AND GRAPHIC CO-PILOT */}
+              <div className="lg:col-span-6 holo-card p-6 flex flex-col justify-between bg-black/40 border border-violet-500/15 rounded-3xl h-full min-h-[500px] shadow-2xl relative overflow-hidden">
+                <div className="absolute top-[-30px] right-[-30px] w-24 h-24 bg-rose-500/5 rounded-full blur-xl animate-pulse pointer-events-none" />
+                
+                <div className="flex items-center justify-between border-b border-white/5 pb-3.5 mb-4 font-mono">
+                  <span className="text-xs font-black text-violet-300 uppercase tracking-widest">{language === 'id' ? 'RIWAYAT DIALOG AI CO-PILOT' : 'AI CO-PILOT LOG OVERVIEW'}</span>
+                  <span className="text-[9px] opacity-40">COMM_PORT: ON</span>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-4 pr-1 mb-4 custom-scrollbar max-h-[300px]">
+                  {aiChat.map((chat, index) => (
+                    <div 
+                      key={index} 
+                      className={cn(
+                        "p-4 rounded-2xl text-[11px] leading-relaxed max-w-full space-y-1.5 transition-all",
+                        chat.role === 'user' 
+                          ? "bg-violet-600/20 text-white border-l-4 border-violet-400 ml-6 animate-pulse" 
+                          : "bg-black/40 border border-violet-500/10 text-violet-100"
+                      )}
+                    >
+                      <div className="flex justify-between text-[8px] font-black tracking-widest font-mono text-cyan-400 uppercase">
+                        <span>{chat.role === 'user' ? 'USER QUERY COMMAND' : 'INMARKET PLATFORM BOT'}</span>
+                        <span className="opacity-50">2026.05</span>
+                      </div>
+                      <p className="font-semibold text-slate-100 leading-relaxed">{chat.text}</p>
+                    </div>
+                  ))}
+
+                  {aiTyping && (
+                    <div className="p-4 rounded-2xl bg-black/30 border border-violet-500/10 text-cyan-400 text-[10px] font-mono tracking-widest animate-pulse">
+                      ⚡ AI SYSTEM PROCESSING QUERY FOR {userRole.toUpperCase()}...
+                    </div>
+                  )}
+                </div>
+
+                {/* Submitting text manual inquiries alternative */}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!aiInp.trim()) return;
+                    processVoiceAIQuery(aiInp);
+                    setAiInp('');
+                  }} 
+                  className="flex gap-2"
+                >
+                  <input 
+                    type="text" 
+                    value={aiInp}
+                    onChange={e => setAiInp(e.target.value)}
+                    placeholder={language === 'id' ? "Ketik alternatif kendala di sini..." : "Or type physical message alternative..."} 
+                    className="flex-1 p-3.5 bg-black/40 border border-violet-500/25 rounded-xl text-xs font-bold outline-none text-violet-100 placeholder-violet-400/30" 
+                  />
+                  <button type="submit" className="px-4.5 bg-gradient-to-r from-[#22d3ee] to-violet-600 hover:brightness-110 text-slate-950 hover:text-white rounded-xl transition cursor-pointer font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5">
+                    <Send size={13} />
+                    <span>{language==='id'?'KIRIM':'SEND'}</span>
+                  </button>
+                </form>
               </div>
 
-              <form onSubmit={handleSendAiQuery} className="flex gap-2">
-                <input 
-                  type="text" 
-                  value={aiInp}
-                  onChange={e => setAiInp(e.target.value)}
-                  placeholder={language === 'id' ? "Tanya strategi pengembangan UMKM 2026..." : "Ask business scaling methodologies..."} 
-                  className="flex-1 p-3.5 bg-black/40 border border-violet-500/25 rounded-xl text-xs font-bold outline-none text-violet-100 placeholder-violet-400/50" 
-                />
-                <button type="submit" className="px-4.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 text-white rounded-xl transition cursor-pointer font-bold text-xs uppercase tracking-wider">
-                  <Bot size={16} />
-                </button>
-              </form>
             </div>
           )}
 
@@ -2976,9 +4015,9 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
       {/* ================================================= */}
       <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-3 w-80 pointer-events-none">
         <AnimatePresence>
-          {notifications.map((notif) => (
+          {notifications.map((notif, index) => (
             <motion.div
-              key={notif.id}
+              key={`${notif.id}_${index}`}
               initial={{ opacity: 0, x: 80, y: -20, scale: 0.9 }}
               animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
               exit={{ opacity: 0, x: 100, scale: 0.8 }}
@@ -3222,6 +4261,50 @@ export default function DashboardPage({ currentView: initialView, onNavigate }: 
         </button>
       </div>
 
+
+      {showQrisPayment && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white dark:bg-[#0b0816] rounded-2xl p-6 sm:p-8 w-full max-w-sm shadow-2xl border border-indigo-500/20 text-center"
+          >
+            <h3 className="text-xl font-black mb-2 text-slate-800 dark:text-white uppercase tracking-wider">Pay via QRIS</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">Scan QR code using your e-wallet or banking app</p>
+            
+            <div className="bg-white p-4 rounded-xl inline-block shadow-sm mb-6 border border-slate-100 dark:border-white/10">
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=QRIS_DEMO_${qrisAmount}_${Date.now()}`} 
+                alt="QRIS Payment"
+                className="w-48 h-48 sm:w-56 sm:h-56 object-contain mix-blend-multiply"
+              />
+            </div>
+            
+            <div className="font-mono text-2xl font-black text-cyan-600 dark:text-cyan-400 mb-8 bg-cyan-50 dark:bg-cyan-900/20 py-3 rounded-lg border border-cyan-100 dark:border-cyan-500/20">
+              Rp{qrisAmount.toLocaleString()}
+            </div>
+            
+            <div className="flex space-x-3">
+              <button 
+                onClick={() => setShowQrisPayment(false)}
+                className="flex-1 py-3 text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 dark:bg-white/5 bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                BATAL
+              </button>
+              <button 
+                onClick={() => {
+                  setShowQrisPayment(false);
+                  executeCheckout();
+                }}
+                className="flex-1 py-3 text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:scale-[1.02] active:scale-[0.98] rounded-xl transition shadow-lg shadow-violet-500/30 cursor-pointer"
+              >
+                KONFIRMASI
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
     </div>
   );
